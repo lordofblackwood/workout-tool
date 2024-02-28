@@ -1,0 +1,8 @@
+#lang typed/racket/base
+
+(define squats
+  (Exercise 'Primary 'Barbell "Squat"
+            5 245 0
+            (build-list 5 (λ (x) 1))
+            (build-list 5 (λ ([x : Natural]) (+ x (get-level 'Barbell 245))))))
+

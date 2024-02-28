@@ -1,0 +1,18 @@
+#lang typed/racket/base
+
+(struct rep-scheme ([reps : Natural] [weight : Natural]))
+(struct exercise ([tool : exercise-tool] [lift : (U String Symbol)]))
+(struct exercise-scheme ([exercise : exercise] [set-scheme : (Listof rep-scheme)]))
+(struct workout ([exercise-schemes : (Listof exercise-scheme)]))
+
+(define-type tool (U
+                   "Dumbbell"
+                   'Dumbbell
+                   "Barbell"
+                   'Barbell
+                   "Cable"
+                   'Cable
+                   "Machine"
+                   'Machine
+                   "Kettlebell"
+                   'Kettlebell))

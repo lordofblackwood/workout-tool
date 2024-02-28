@@ -1,0 +1,6 @@
+#lang typed/racket
+
+(struct rep-scheme ([reps : Natural] [weight : Natural]))
+(struct set-scheme ([rep-schemes : (Listof rep-scheme)]))
+(struct exercise-schemes ([exercise : String] [set-scheme : (Listof set-scheme)]))
+(struct workout ([exercise-schemes : (Listof exercise-scheme)]))

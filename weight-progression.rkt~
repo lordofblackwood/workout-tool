@@ -1,0 +1,20 @@
+#lang typed/racket/base
+
+;; Abstractly I went to describe what weights are available for a given resistance mode,
+;; And what are the smallest increments between any given weight as possible.
+
+(define-type Progression (-> Level ResistanceMode Weight))
+
+;; Machine starts at a specified weight and makes jumps until a specified weight.
+(define machine-progression)
+
+;; Barbell progression starts at 45 and hypothetically continues on incrementing by 5lbs infinitely.
+;; In reality caps at 355 in the apartment gym and probably like 900 at the commercial gym.
+(define barbell-progression)
+
+
+;; Starts at 5lbs then 2.5lbs increments until 30lbs then 5lbs increments until 100lbs.
+(define dumbbell-progression)
+
+;; Machine starts at a specified weight and makes jumps until a specified weight.
+(define cable-progression)
