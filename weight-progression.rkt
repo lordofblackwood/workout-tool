@@ -42,14 +42,7 @@
 (define (get-machine-weight [resistance-level : Natural])
   (* resistance-level 10))
 
-;; Cables just jump in increments of 10lbs.
-(: get-cable-resistance-level (-> Natural Natural))
-(define (get-cable-resistance-level [weight : Natural])
-  (assert (/ weight 10) natural?))
 
-(: get-cable-weight (-> Natural Natural))
-(define (get-cable-weight [resistance-level : Natural])
-  (* resistance-level 10))
 
 (: get-level (-> ResistanceMode Natural Natural))
 (define (get-level resistance-mode weight)
