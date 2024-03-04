@@ -1,18 +1,40 @@
-#lang typed/racket/base
+#lang racket/base
+(provide (all-defined-out))
 
-(struct rep-scheme ([reps : Natural] [weight : Natural]))
-(struct exercise ([tool : exercise-tool] [lift : (U String Symbol)]))
-(struct exercise-scheme ([exercise : exercise] [set-scheme : (Listof rep-scheme)]))
-(struct workout ([exercise-schemes : (Listof exercise-scheme)]))
+;; An exercise tool is the mode of resistance for an exercise.
+#;(define-type ResistanceMode (U
+                             'Dumbbell
+                             'Barbell
+                             'Cable
+                             'Machine
+                             'Kettlebell))
 
-(define-type tool (U
-                   "Dumbbell"
-                   'Dumbbell
-                   "Barbell"
-                   'Barbell
-                   "Cable"
-                   'Cable
-                   "Machine"
-                   'Machine
-                   "Kettlebell"
-                   'Kettlebell))
+;; An exercise represents what is.
+#;(struct exercise ([type : (U 'Primary 'Accessory)]
+                  [tool : ResistanceMode]
+                  [lift : String]
+                  [goal-reps : Natural]
+                  [resistanceLevel : Natural]
+                  [volume : VolumeChart])
+  #:type-name Exercise)
+
+(struct exercise (type ; is one of 'Primary 'Accessory
+                  tool ; is-a Resistance
+                  lift ; is-a String
+                  goal-reps ; is-a Natural
+                  resistanceLevel ; is-a Natural
+                  volume)) ; is-a (Vector Natural (Vector Natural *))
+
+;; A workout represents the program a lifter should do.
+;(define-type Workout (Listof Exercise))
+
+#;(struct resistance ([get-level : (-> Real Real)]
+                    [get-resistance : (-> Real Real)]
+                    [max-level : Natural])
+  #:type-name Resistance)
+(struct resistance (get-level ; is-a (-> Nonnegative-Rational Natural)
+                    get-weight ; is-a (-> Natural Nonnegative-Rational)
+                    max-level)) ; is-a Natural
+
+
+;(define-type VolumeChart (Vector Natural (Vector Natural Natural)))

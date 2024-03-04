@@ -18,12 +18,12 @@
                   [volume : VolumeChart])
   #:type-name Exercise)
 
-(struct exercise (type
-                  tool
-                  lift
-                  goal-reps
-                  resistanceLeve
-                  volume))
+(struct exercise (type ; is one of 'Primary 'Accessory
+                  tool ; is-a Resistance
+                  lift ; is-a String
+                  goal-reps ; is-a Natural
+                  resistance-level ; is-a Natural
+                  volume)) ; is-a (Vector Natural (Vector Natural *))
 
 ;; A workout represents the program a lifter should do.
 ;(define-type Workout (Listof Exercise))
@@ -32,9 +32,9 @@
                     [get-resistance : (-> Real Real)]
                     [max-level : Natural])
   #:type-name Resistance)
-(struct resistance (get-level
-                    get-weight
-                    max-level))
+(struct resistance (get-level ; is-a (-> Nonnegative-Rational Natural)
+                    get-weight ; is-a (-> Natural Nonnegative-Rational)
+                    max-level)) ; is-a Natural
 
 
 ;(define-type VolumeChart (Vector Natural (Vector Natural Natural)))
