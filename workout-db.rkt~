@@ -1,0 +1,10 @@
+#lang racket/base
+
+(provide store-workout
+         read-workout)
+
+(define (store-workout file-name workout)
+  )
+
+(define (read-workout file-name)
+  )

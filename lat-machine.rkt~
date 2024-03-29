@@ -1,0 +1,16 @@
+#lang typed/racket/base
+
+(define lat-machine-max-level 15)
+
+(define (get-lat-machine-level weight)
+  )
+
+(define (get-lat-machine-weight level)
+  (if (> level lat-machine-max-level)
+      (get-lat-machine-weight lat-machine-max-level)
+      ())
+
+(define lat-machine
+  (resistance get-lat-machine-level
+              get-lat-machine-weight
+              lat-machine-max-level)

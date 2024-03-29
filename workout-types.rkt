@@ -19,11 +19,13 @@
     #:type-name Exercise)
 
 (struct exercise (type ; is one of 'Primary 'Accessory
-                  tool ; is-a Symbol XXXis-a Resistance
+                  tool ; is-a Symbol
                   lift ; is-a String
                   goal-reps ; is-a Natural
-                  resistance-level ; is-a Nonnegative-Real
-                  volume) ; is-a (Vector Natural (Vector Natural *))
+                  benchmark-level ; is-a Nonnegative-Real
+                  current-level ; is-a Nonnegative-Real
+                  sets) ; is-a Natural
+  ; volume) ; is-a (Vector Natural (Vector Natural *))
   #:prefab) 
 
 ;; A workout represents the program a lifter should do.
@@ -45,6 +47,7 @@
   (string-append
    (exercise-tool exercise) " "
    (exercise-lift exercise) " "
+   (number->string (exercise-sets exercise)) " sets "
    (number->string (exercise-goal-reps exercise)) " reps "
    (number->string
-    ((resistance-get-weight resistance) (exercise-resistance-level exercise))) "lbs"))
+    ((resistance-get-weight resistance) (exercise-current-level exercise))) "lbs"))

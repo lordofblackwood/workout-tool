@@ -1,0 +1,52 @@
+#lang racket/base
+(require racket/gui/easy
+         racket/gui/easy/operator
+         racket/match
+         "current-workout.rkt"
+         "workout-types.rkt"
+         "resistance-modes.rkt"
+         "workout-db.rkt")
+
+(define (render-list some-list)
+  (render
+   (window
+    (vpanel
+     (list-view some-list (λ (x y) x))
+     #:min-size (list 250 (* 25 (length some-list)))))))
+
+
+(define (check exercise action)
+  (define resistance (get-resistance (exercise-tool exercise)))
+  (hpanel
+   (checkbox (λ (x) (action not)))
+   (text (exercise->string exercise resistance))))
+
+(define workout (map
+                 (λ (exercise)
+                   (cons exercise (@ #f)))
+                 current-workout))
+
+(define (buttons workout)
+  (hpanel
+   (button "All Completed" (λ ()
+                             (map (λ (exercise)
+                                    (:= (cdr exercise) #t))
+                                    workout)
+                             (store-workout (string-append (date->string (current-date)) ".txt") workout)
+                             (println "All Complete")))
+   (button "Submit" (λ () (println "Submit")))
+   #:alignment '(center center)))
+
+(define workout-state
+  (map 
+   (λ (exercise)
+     (check (car exercise) (λ (proc) ((cdr exercise) . <~ . proc))))
+   workout))
+
+(render-list
+ (append
+  workout-state
+  (list buttons)))
+
+
+

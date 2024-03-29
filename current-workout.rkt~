@@ -1,0 +1,80 @@
+#lang racket/base
+(require
+  "resistance-modes.rkt"
+  "workout-types.rkt"
+  "generate-volume.rkt")
+
+(provide current-workout)
+
+#;(struct exercise (type ; is one of 'Primary 'Accessory
+                    tool ; is-a Resistance
+                    lift ; is-a String
+                    goal-reps ; is-a Natural
+                    resistance-level ; is-a Natural
+                    volume)) ; is-a (Vector Natural (Vector Natural *))
+
+(define squats
+  (exercise 'Primary
+            "Barbell"
+            "Squat"
+            5
+            ((resistance-get-level BARBELL) 275)
+            (generate-volume BARBELL)))
+
+(define bench
+  (exercise 'Primary
+            "Barbell"
+            "Bench"
+            5
+            ((resistance-get-level BARBELL) 215)
+            (generate-volume BARBELL)))
+
+(define lats
+  (exercise 'Accessory
+            "Lat Machine"
+            "Lat Pulldowns"
+            5
+            ((resistance-get-level LAT-MACHINE) 165)
+            (generate-volume LAT-MACHINE)))
+
+(define traps
+  (exercise 'Accessory
+            "Cable"
+            "Face Pulls"
+            5
+            ((resistance-get-level CABLE) 110)
+            (generate-volume CABLE)))
+
+(define triceps
+  (exercise 'Accessory
+            "Cable"
+            "Tricep Extensions"
+            5
+            ((resistance-get-level CABLE) 110)
+            (generate-volume CABLE)))
+
+(define biceps
+  (exercise 'Accessory
+            "Dumbbell"
+            "Bicep Curls"
+            5
+            ((resistance-get-level DUMBBELL) 25)
+            (generate-volume DUMBBELL)))
+
+(define shoulder
+  (exercise 'Accessory
+            "Dumbbell"
+            "Shoulder Press"
+            5
+            ((resistance-get-level DUMBBELL) 25)
+            (generate-volume DUMBBELL)))
+
+(define current-workout
+  (list squats
+        bench
+        lats
+        traps
+        triceps
+        biceps
+        shoulder))
+

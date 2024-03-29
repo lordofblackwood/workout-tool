@@ -1,0 +1,13 @@
+#lang racket/base
+(require "workout-types.rkt")
+
+(define (generate-volume resistance-tool)
+  (let ([max-level (resistance-max-level resistance-tool)]
+        [max-reps 12]
+        [min-reps 1])
+    (make-vector
+     max-reps
+     (make-vector
+      max-level
+      values))))
+    

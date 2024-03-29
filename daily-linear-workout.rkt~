@@ -1,0 +1,20 @@
+#lang racket/base
+
+
+#;(struct exercise (type ; is one of 'Primary 'Accessory
+                  tool ; is-a Resistance
+                  lift ; is-a String
+                  goal-reps ; is-a Natural
+                  resistanceLevel ; is-a Natural
+                  volume)) ; is-a (Vector Natural (Vector Natural *))
+
+(define (generate-new-workout exercise was-successful)
+  (if was-successful
+      (generate-next-day exercise)
+      (revert-five-levels exercise)))
+
+
+(define (generate-next-day ex)
+  (exercise
+   (exercise-type ex)
+   (exercise-

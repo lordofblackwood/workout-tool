@@ -1,0 +1,9 @@
+#lang racket/base
+(require  "barbell.rkt"
+         "lat-machine.rkt"
+         "cable.rkt"
+         "dumbbell.rkt")
+(provide BARBELL
+         CABLE
+         DUMBBELL
+         LAT-MACHINE)

@@ -1,0 +1,4 @@
+#lang rosette
+(require "dumbbell.rkt")
+(define-symbolic x nonnegative-integer?)
+(assert (= (get-dumbbell-weight (get-dumbbell-resistance-level x) x)))

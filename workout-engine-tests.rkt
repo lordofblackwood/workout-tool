@@ -1,0 +1,76 @@
+#lang racket/base
+
+(require rackunit)
+(require "workout-types.rkt"
+         "dup-workout-engine.rkt")
+
+;; Load the implementation
+
+;; Define tests for update-exercise function
+(define-test-suite update-exercise-tests
+  (test-case "Exercise succeeded updates correctly"
+    (let ([exercise-state '(Exercise1 #t)])
+      (check-equal? (update-exercise exercise-state) '(Exercise1 #t))))
+  
+  (test-case "Exercise failed updates correctly"
+    (let ([exercise-state '(Exercise2 #f)])
+      (check-equal? (update-exercise exercise-state) '(Exercise2 #f)))))
+
+;; Define tests for reps-for-success function
+(define-test-suite reps-for-success-tests
+  (test-case "Reps for success calculation"
+    (let ([exercise (exercise 'Primary 'Barbell "Squat" 10 100 90 3)])
+      (check-equal? (reps-for-success exercise) 9))))
+
+;; Define tests for reps-for-failure function
+(define-test-suite reps-for-failure-tests
+  (test-case "Reps for failure calculation"
+    (let ([exercise (exercise 'Primary 'Barbell "Deadlift" 5 150 140 3)])
+      (check-equal? (reps-for-failure exercise) 5))))
+
+;; Define tests for benchmark-for-success function
+(define-test-suite benchmark-for-success-tests
+  (test-case "Benchmark for success calculation"
+    (let ([exercise (exercise 'Primary 'Dumbbell "Curl" 8 40 35 3)])
+      (check-equal? (benchmark-for-success exercise) 36))))
+
+;; Define tests for benchmark-for-failure function
+(define-test-suite benchmark-for-failure-tests
+  (test-case "Benchmark for failure calculation"
+    (let ([exercise (exercise 'Accessory 'Machine "Leg Press" 10 200 180 3)])
+      (check-equal? (benchmark-for-failure exercise) 200))))
+
+;; Define tests for current-for-success function
+(define-test-suite current-for-success-tests
+  (test-case "Current for success calculation"
+    (let ([exercise (exercise 'Accessory 'Machine "Leg Extension" 12 150 145 3)])
+      (check-equal? (current-for-success exercise) 146))))
+
+;; Define tests for current-for-failure function
+(define-test-suite current-for-failure-tests
+  (test-case "Current for failure calculation"
+    (let ([exercise (exercise 'Primary 'Barbell "Bench Press" 8 200 190 3)])
+      (check-equal? (current-for-failure exercise) 185))))
+
+;; Define tests for sets-for-success function
+(define-test-suite sets-for-success-tests
+  (test-case "Sets for success calculation"
+    (let ([exercise (exercise 'Primary 'Barbell "Overhead Press" 6 100 95 2)])
+      (check-equal? (sets-for-success exercise) 1))))
+
+;; Define tests for sets-for-failure function
+(define-test-suite sets-for-failure-tests
+  (test-case "Sets for failure calculation"
+    (let ([exercise (exercise 'Accessory 'Dumbbell "Bicep Curl" 12 40 38 2)])
+      (check-equal? (sets-for-failure exercise) 1))))
+
+;; Run all the test suites
+(run-test update-exercise-tests)
+(run-test reps-for-success-tests)
+(run-test reps-for-failure-tests)
+(run-test benchmark-for-success-tests)
+(run-test benchmark-for-failure-tests)
+(run-test current-for-success-tests)
+(run-test current-for-failure-tests)
+(run-test sets-for-success-tests)
+(run-test sets-for-failure-tests)

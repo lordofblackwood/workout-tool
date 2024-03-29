@@ -1,0 +1,98 @@
+#lang racket/base
+(require "workout-types.rkt")
+(provide (all-defined-out))
+
+;; a workout-state is (Listof (cons Exercise Boolean))
+
+;; Take in a workout-state and provide the next day's planned workout
+(define (workout-engine workout-state)
+  (map update-exercise
+       workout-state))
+
+
+;; an exercise-state is a (cons Exercise Boolean)
+(define (update-exercise exercise-state)
+  (if (car exercise-state)
+      (exercise-succeeded (cons exercise-state))
+      (exercise-failed (cons exercise-state))))
+#;(struct exercise (type ; is one of 'Primary 'Accessory
+                    tool ; is-a Symbol
+                    lift ; is-a String
+                    goal-reps ; is-a Natural
+                    benchmark-level ; is-a Nonnegative-Real
+                    current-level ; is-a Nonnegative-Real
+                    sets) ; is-a Natural
+    ; volume) ; is-a (Vector Natural (Vector Natural *))
+    #:prefab) 
+
+(define (exercise-succeeded exercise)
+  (exercise (exercise-type exercise) ; constant
+            (exercise-tool exercise) ; constant
+            (exercise-lift exercise) ; constant
+            (reps-for-success exercise)
+            (benchmark-for-success exercise)
+            (current-for-success exercise)
+            (sets-for-success exercise)))
+
+(define (exercise-failed exercise)
+  (exercise (exercise-type exercise) ; constant
+            (exercise-tool exercise) ; constant
+            (exercise-lift exercise) ; constant
+            (reps-for-failure exercise)
+            (benchmark-for-failure exercise)
+            (current-for-failure exercise)
+            (sets-for-failure exercise)))
+
+(define (reps-for-success exercise)
+  (define maxed-out-machine (and
+                             (< (resistance-max-level (exercise-tool exercise))
+                                (add1 (exercise-current-level exercise)))
+                             (>= (exercise-sets exercise) 3)))
+  (cond [(not maxed-out-machine) (exercise-goal-reps exercise)]
+        [(eq? (exercise-type exercise) 'Accessory) (add1 (exercise-goal-reps exercise))]
+        [#t (sub1 (exercise-goal-reps exercise))]))
+
+(define (reps-for-failure exercise) 
+  (cond [(< (exercise-sets exercise) 3) (exercise-goal-reps exercise)]
+        [(eq? (exercise-type exercise) 'Accessory) (add1 (exercise-goal-reps exercise))]
+        [#t (sub1 (exercise-goal-reps exercise))]))
+
+(define (benchmark-for-success exercise)
+  (let ([benchmark (exercise-benchmark-level exercise)]
+        [current (exercise-current-level exercise)]
+        [tool (exercise-tool exercise)])
+    (min (max benchmark (add1 current)) (resistance-max-level tool))))
+
+(define (benchmark-for-failure exercise)
+  (exercise-benchmark-level exercise))
+
+(define (current-for-success exercise)
+  (let ([current (exercise-current-level exercise)]
+        [tool (exercise-tool exercise)])
+    (min (add1 current) (resistance-max-level tool))))
+
+(define (current-for-failure exercise)
+  (max 0 (- (exercise-current-level exercise) 5)))
+
+(define (sets-for-success exercise)
+  (let ([sets (exercise-sets exercise)]
+        [benchmark (exercise-benchmark-level exercise)]
+        [current (exercise-current-level exercise)]
+        [tool (exercise-tool exercise)])
+    (cond
+      [(and (< sets 3) (>= (add1 current) (resistance-max-level tool))) (add1 sets)]
+      [(>= (add1 current) (resistance-max-level tool)) 1] ;; We will be changing reps
+      [(< (add1 current) benchmark) sets]
+      [#t 1])))
+
+(define (sets-for-failure exercise)
+  (let ([sets (exercise-sets exercise)]
+        [benchmark (exercise-benchmark-level exercise)]
+        [current (exercise-current-level exercise)]
+        [tool (exercise-tool exercise)])
+ 
+    (cond
+      [(and (< sets 3) (>= (add1 current) (resistance-max-level tool))) (add1 sets)]
+      [(>= (add1 current) (resistance-max-level tool)) 1] ;; We will be changing reps
+      [(< (add1 current) benchmark) sets]
+      [#t 1])))

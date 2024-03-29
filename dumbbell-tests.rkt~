@@ -1,0 +1,5 @@
+#lang typed/racket/base
+(require rackunit
+         "dumbbell.rkt")
+
+(map (build-list 
