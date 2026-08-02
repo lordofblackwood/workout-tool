@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#101114" />
+    <meta name="description" content="A tiny offline accessory workout tracker." />
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="icon" href="./icons/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="./icons/icon-192.png" />
+    <link rel="stylesheet" href="./styles.css" />
+    <title>Accessory Lift Tracker</title>
+  </head>
+  <body>
+    <div class="page-shell">
+      <header class="app-header">
+        <div>
+          <p class="eyebrow">OFFLINE TRAINING LOG</p>
+          <h1>Accessory Lifts</h1>
+        </div>
+        <button class="install-button" data-action="install" type="button" hidden>Install</button>
+      </header>
+
+      <nav class="tab-bar" aria-label="Main navigation">
+        <button class="tab is-active" data-view="workout" type="button">Workout</button>
+        <button class="tab" data-view="history" type="button">History</button>
+      </nav>
+
+      <main id="app" aria-live="polite"></main>
+
+      <footer class="app-footer">
+        <span>Stored on this device</span>
+        <span aria-hidden="true">•</span>
+        <span>v1</span>
+      </footer>
+    </div>
+
+    <noscript>
+      <p class="noscript-message">This tracker needs JavaScript enabled to save workouts in your browser.</p>
+    </noscript>
+    <script src="./app.js?v=3" defer></script>
+  </body>
+</html>
