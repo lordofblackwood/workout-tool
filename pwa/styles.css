@@ -29,7 +29,8 @@ body {
 }
 
 button,
-input {
+input,
+select {
   font: inherit;
 }
 
@@ -38,7 +39,8 @@ button {
 }
 
 button:focus-visible,
-input:focus-visible {
+input:focus-visible,
+select:focus-visible {
   outline: 3px solid var(--accent);
   outline-offset: 3px;
 }
@@ -215,6 +217,12 @@ h3 {
   line-height: 1;
 }
 
+.prescription-meta {
+  margin: 0.55rem 0 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
 .progress-row {
   justify-content: flex-start;
   margin-top: 0.75rem;
@@ -247,6 +255,10 @@ h3 {
   gap: 0.65rem;
 }
 
+.button-row.three-actions {
+  grid-template-columns: 1fr 1fr 0.75fr;
+}
+
 .button,
 .install-button {
   min-height: 2.8rem;
@@ -274,6 +286,12 @@ h3 {
   color: var(--danger);
 }
 
+.button.compact {
+  min-height: 2.25rem;
+  padding: 0.45rem 0.7rem;
+  font-size: 0.8rem;
+}
+
 .button:disabled {
   cursor: not-allowed;
   opacity: 0.42;
@@ -298,6 +316,11 @@ h3 {
 
 .logged-state.failure {
   color: var(--danger);
+}
+
+.logged-state.skipped,
+.result-skipped {
+  color: var(--muted);
 }
 
 .link-button {
@@ -376,6 +399,47 @@ h3 {
   color: var(--danger);
 }
 
+.settings-list {
+  gap: 0.75rem;
+}
+
+.settings-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.setting-field {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.setting-field select,
+.setting-field input {
+  width: 100%;
+  min-height: 2.75rem;
+  border: 1px solid var(--border);
+  border-radius: 0.65rem;
+  padding: 0.55rem 0.65rem;
+  color: var(--text);
+  background: var(--surface-raised);
+}
+
+.setting-field select:disabled,
+.setting-field input:disabled {
+  opacity: 0.5;
+}
+
+.settings-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  border-top: 1px solid var(--border);
+  margin-top: 1rem;
+  padding-top: 1rem;
+}
+
 .data-card {
   margin-top: 1rem;
 }
@@ -449,5 +513,20 @@ h3 {
     min-height: 2.45rem;
     padding: 0.5rem 0.7rem;
     font-size: 0.82rem;
+  }
+
+  .tab {
+    margin-right: 0.9rem;
+    font-size: 0.9rem;
+  }
+
+  .button-row.three-actions,
+  .settings-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-footer {
+    align-items: flex-start;
+    flex-direction: column;
   }
 }

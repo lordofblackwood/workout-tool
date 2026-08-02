@@ -1,12 +1,21 @@
 const STORAGE_KEY = "accessory-lift-tracker-v1";
+const STATE_VERSION = 2;
+const FAILURE_DROP_LEVELS = 5;
+
+const DUMBBELL_LEVELS = ["5 lb", "7.5 lb", "10 lb", "12.5 lb", "15 lb", "17.5 lb", "20 lb", "22.5 lb", "25 lb", "27.5 lb", "30 lb", "35 lb", "40 lb", "45 lb", "50 lb", "55 lb", "60 lb", "65 lb", "70 lb", "75 lb", "80 lb", "85 lb", "90 lb", "95 lb", "100 lb"];
+const CABLE_LEVELS = ["10 lb", "20 lb", "30 lb", "40 lb", "50 lb", "60 lb", "70 lb", "80 lb", "90 lb", "100 lb", "110 lb", "120 lb", "130 lb", "140 lb", "150 lb"];
+const MACHINE_LEVELS = ["20 lb", "35 lb", "50 lb", "65 lb", "80 lb", "95 lb", "110 lb", "125 lb", "145 lb", "165 lb", "185 lb", "205 lb", "225 lb"];
 
 const DEFAULT_EXERCISES = [
-  { id: "incline-db-press", name: "Incline DB Press", equipment: "Dumbbell", levels: ["20 lb", "25 lb", "30 lb", "35 lb", "40 lb", "45 lb", "50 lb"], currentIndex: 1 },
-  { id: "lat-pulldown", name: "Lat Pulldown", equipment: "Lat machine", levels: ["60 lb", "70 lb", "80 lb", "90 lb", "100 lb", "110 lb", "120 lb"], currentIndex: 1 },
-  { id: "bicep-curls", name: "Bicep Curls", equipment: "Dumbbell", levels: ["15 lb", "20 lb", "25 lb", "30 lb", "35 lb", "40 lb"], currentIndex: 1 },
-  { id: "triceps-pushdown", name: "Triceps Pushdown", equipment: "Cable", levels: ["25 lb", "30 lb", "35 lb", "40 lb", "45 lb", "50 lb", "55 lb"], currentIndex: 1 },
-  { id: "front-delt-raise", name: "Front Delt Raise", equipment: "Dumbbell", levels: ["5 lb", "7.5 lb", "10 lb", "12.5 lb", "15 lb", "17.5 lb"], currentIndex: 1 },
-  { id: "side-delt-raise", name: "Side Delt Raise", equipment: "Dumbbell", levels: ["5 lb", "7.5 lb", "10 lb", "12.5 lb", "15 lb", "17.5 lb"], currentIndex: 1 }
+  defaultExercise("incline-db-press", "Incline DB Press", "Dumbbell", DUMBBELL_LEVELS, "25 lb"),
+  defaultExercise("lat-pulldown", "Lat Pulldown", "Machine", MACHINE_LEVELS, "20 lb"),
+  defaultExercise("machine-row", "Machine Rows", "Machine", MACHINE_LEVELS, "20 lb"),
+  defaultExercise("leg-extension", "Leg Extensions", "Machine", MACHINE_LEVELS, "20 lb"),
+  defaultExercise("hamstring-curl", "Hamstring Curls", "Machine", MACHINE_LEVELS, "20 lb"),
+  defaultExercise("bicep-curls", "Bicep Curls", "Dumbbell", DUMBBELL_LEVELS, "20 lb"),
+  defaultExercise("triceps-pushdown", "Triceps Pushdown", "Cable", CABLE_LEVELS, "30 lb"),
+  defaultExercise("front-delt-raise", "Front Delt Raise", "Dumbbell", DUMBBELL_LEVELS, "7.5 lb"),
+  defaultExercise("side-delt-raise", "Side Delt Raise", "Dumbbell", DUMBBELL_LEVELS, "7.5 lb")
 ];
 
 let currentView = "workout";
@@ -35,6 +44,11 @@ window.addEventListener("appinstalled", () => {
 render();
 registerServiceWorker();
 
+function defaultExercise(id, name, equipment, levels, startingWeight) {
+  const currentIndex = Math.max(0, levels.indexOf(startingWeight));
+  return { id, name, equipment, levels: [...levels], baseIndex: 0, currentIndex, benchmarkIndex: currentIndex, goalReps: 5, sets: 1, enabled: true };
+}
+
 function handleClick(event) {
   const viewButton = event.target.closest("[data-view]");
   if (viewButton) {
@@ -46,16 +60,21 @@ function handleClick(event) {
 
   const actionButton = event.target.closest("[data-action]");
   if (!actionButton) return;
-
   const { action, exerciseId } = actionButton.dataset;
-  if (action === "log-success" || action === "log-failure") {
-    logResult(exerciseId, action === "log-success" ? "success" : "failure");
+
+  if (["log-success", "log-failure", "log-skipped"].includes(action)) {
+    const outcomes = { "log-success": "success", "log-failure": "failure", "log-skipped": "skipped" };
+    logResult(exerciseId, outcomes[action]);
   } else if (action === "undo-result") {
     undoResult(exerciseId);
   } else if (action === "complete-workout") {
     completeWorkout();
   } else if (action === "reset-workout") {
     resetWorkout();
+  } else if (action === "toggle-exercise") {
+    toggleExercise(exerciseId);
+  } else if (action === "reset-exercise") {
+    resetExercise(exerciseId);
   } else if (action === "export") {
     exportData();
   } else if (action === "reset-data") {
@@ -66,20 +85,26 @@ function handleClick(event) {
 }
 
 function handleChange(event) {
-  if (event.target.matches("#import-file")) importData(event.target.files?.[0]);
+  if (event.target.matches("#import-file")) {
+    importData(event.target.files?.[0]);
+    return;
+  }
+  const { exerciseField, exerciseId } = event.target.dataset;
+  if (exerciseField && exerciseId) updateExerciseField(exerciseId, exerciseField, event.target.value);
 }
 
 function render() {
   updateTabs();
   app.replaceChildren();
   if (currentView === "history") renderHistory();
+  else if (currentView === "exercises") renderExerciseSettings();
   else renderWorkout();
 }
 
 function renderWorkout() {
+  const exercises = enabledExercises();
   const results = state.active.results;
-  const completedCount = Object.keys(results).length;
-  const totalCount = state.exercises.length;
+  const completedCount = exercises.filter((exercise) => results[exercise.id]).length;
 
   const heading = el("div", undefined, "section-heading");
   const headingText = el("div");
@@ -89,21 +114,26 @@ function renderWorkout() {
 
   const summary = el("section", undefined, "summary-card");
   const summaryCopy = el("div");
-  summaryCopy.append(el("div", `${completedCount}/${totalCount}`, "summary-number"));
+  summaryCopy.append(el("div", `${completedCount}/${exercises.length}`, "summary-number"));
   summaryCopy.append(el("div", "exercises logged", "summary-label"));
   const summaryActions = el("div", undefined, "footer-actions");
   const completeButton = button("Complete workout", "button primary", "complete-workout");
-  completeButton.disabled = completedCount !== totalCount;
-  summaryActions.append(completeButton);
-  const resetButton = button("Reset log", "button", "reset-workout");
-  summaryActions.append(resetButton);
+  completeButton.disabled = !exercises.length || completedCount !== exercises.length;
+  summaryActions.append(completeButton, button("Reset log", "button", "reset-workout"));
   summary.append(summaryCopy, summaryActions);
-
   app.append(heading, summary);
+
   if (notice) app.append(el("p", notice, "notice"));
+  if (!exercises.length) {
+    const empty = el("section", undefined, "empty-card");
+    empty.append(el("h3", "No exercises enabled"));
+    empty.append(el("p", "Use the Exercises tab to include at least one lift.", "muted"));
+    app.append(empty);
+    return;
+  }
 
   const list = el("div", undefined, "exercise-list");
-  state.exercises.forEach((exercise) => list.append(renderExercise(exercise, results[exercise.id])));
+  exercises.forEach((exercise) => list.append(renderExercise(exercise, results[exercise.id])));
   app.append(list);
 }
 
@@ -115,10 +145,10 @@ function renderExercise(exercise, result) {
   nameBlock.append(el("span", exercise.equipment, "equipment"));
   cardHeading.append(nameBlock);
 
-  const current = exercise.levels[exercise.currentIndex];
   const levelBlock = el("div", undefined, "level-block");
-  levelBlock.append(el("div", "Current prescription", "level-label"));
-  levelBlock.append(el("p", current, "level-value"));
+  levelBlock.append(el("div", result ? "Next prescription" : "Current prescription", "level-label"));
+  levelBlock.append(el("p", currentWeight(exercise), "level-value"));
+  levelBlock.append(el("p", `${exercise.sets} ${exercise.sets === 1 ? "set" : "sets"} × ${exercise.goalReps} reps · benchmark ${exercise.levels[exercise.benchmarkIndex]}`, "prescription-meta"));
 
   const progressRow = el("div", undefined, "progress-row");
   const track = el("div", undefined, "progress-track");
@@ -127,22 +157,93 @@ function renderExercise(exercise, result) {
   track.append(fill);
   progressRow.append(track, el("span", `${exercise.currentIndex + 1}/${exercise.levels.length}`, "progress-count"));
   levelBlock.append(progressRow);
-
   card.append(cardHeading, levelBlock);
+
   if (result) {
     const loggedState = el("div", undefined, "logged-state");
-    loggedState.classList.add(result.outcome === "success" ? "success" : "failure");
-    const label = result.outcome === "success" ? "✓ Done" : "✗ Failed";
-    loggedState.append(el("span", `${label} · ${result.weight}`));
+    loggedState.classList.add(result.outcome);
+    const labels = { success: "✓ Done", failure: "✗ Failed", skipped: "— Skipped" };
+    loggedState.append(el("span", `${labels[result.outcome]} · ${result.sets}×${result.reps} at ${result.weight}`));
     loggedState.append(button("Undo", "link-button", "undo-result", exercise.id));
     card.append(loggedState);
   } else {
-    const actions = el("div", undefined, "button-row");
+    const actions = el("div", undefined, "button-row three-actions");
     actions.append(button("Done", "button primary", "log-success", exercise.id));
     actions.append(button("Failed", "button danger", "log-failure", exercise.id));
+    actions.append(button("Skip", "button", "log-skipped", exercise.id));
     card.append(actions);
   }
   return card;
+}
+
+function renderExerciseSettings() {
+  const heading = el("div", undefined, "section-heading");
+  const copy = el("div");
+  copy.append(el("h2", "Exercises and current state"));
+  copy.append(el("p", "Set today’s level directly or exclude a lift from the workout.", "meta"));
+  heading.append(copy);
+  app.append(heading);
+  if (notice) app.append(el("p", notice, "notice"));
+
+  const list = el("div", undefined, "exercise-list settings-list");
+  state.exercises.forEach((exercise) => list.append(renderExerciseSettingCard(exercise)));
+  app.append(list);
+}
+
+function renderExerciseSettingCard(exercise) {
+  const card = el("article", undefined, "exercise-card settings-card");
+  const heading = el("div", undefined, "card-heading");
+  const nameBlock = el("div");
+  nameBlock.append(el("h3", exercise.name));
+  nameBlock.append(el("span", exercise.equipment, "equipment"));
+  const toggle = button(exercise.enabled ? "Included" : "Excluded", `button compact ${exercise.enabled ? "primary" : ""}`, "toggle-exercise", exercise.id);
+  heading.append(nameBlock, toggle);
+  card.append(heading);
+
+  const controls = el("div", undefined, "settings-grid");
+  controls.append(settingSelect("Current weight", exercise, "currentIndex", exercise.currentIndex, exercise.levels.map((label, index) => [index, label])));
+  controls.append(settingSelect("Benchmark", exercise, "benchmarkIndex", exercise.benchmarkIndex, exercise.levels.map((label, index) => [index, label])));
+  controls.append(settingSelect("Sets", exercise, "sets", exercise.sets, [[1, "1 set"], [2, "2 sets"], [3, "3 sets"]]));
+
+  const repsLabel = el("label", undefined, "setting-field");
+  repsLabel.append(el("span", "Target reps", "level-label"));
+  const repsInput = document.createElement("input");
+  repsInput.type = "number";
+  repsInput.min = "1";
+  repsInput.max = "99";
+  repsInput.value = exercise.goalReps;
+  repsInput.dataset.exerciseField = "goalReps";
+  repsInput.dataset.exerciseId = exercise.id;
+  repsInput.disabled = Boolean(state.active.results[exercise.id]);
+  repsLabel.append(repsInput);
+  controls.append(repsLabel);
+  card.append(controls);
+
+  const footer = el("div", undefined, "settings-footer");
+  footer.append(el("span", state.active.results[exercise.id] ? "Undo this workout result before editing." : `Failure drops ${FAILURE_DROP_LEVELS} levels.`, "helper-text"));
+  const reset = button("Reset to base", "button compact", "reset-exercise", exercise.id);
+  reset.disabled = Boolean(state.active.results[exercise.id]);
+  footer.append(reset);
+  card.append(footer);
+  return card;
+}
+
+function settingSelect(label, exercise, field, selectedValue, choices) {
+  const wrapper = el("label", undefined, "setting-field");
+  wrapper.append(el("span", label, "level-label"));
+  const select = document.createElement("select");
+  select.dataset.exerciseField = field;
+  select.dataset.exerciseId = exercise.id;
+  select.disabled = Boolean(state.active.results[exercise.id]);
+  choices.forEach(([value, text]) => {
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = text;
+    option.selected = Number(value) === Number(selectedValue);
+    select.append(option);
+  });
+  wrapper.append(select);
+  return wrapper;
 }
 
 function renderHistory() {
@@ -195,8 +296,8 @@ function renderHistoryCard(session) {
   session.exercises.forEach((entry) => {
     const row = el("li");
     row.append(el("span", entry.name));
-    const outcome = el("strong", `${entry.outcome === "success" ? "Done" : "Failed"} · ${entry.weight}`, entry.outcome === "success" ? "result-success" : "result-failure");
-    row.append(outcome);
+    const labels = { success: "Done", failure: "Failed", skipped: "Skipped" };
+    row.append(el("strong", `${labels[entry.outcome] || entry.outcome} · ${entry.sets || 1}×${entry.reps || 5} at ${entry.weight}`, `result-${entry.outcome}`));
     results.append(row);
   });
   card.append(results);
@@ -205,24 +306,62 @@ function renderHistoryCard(session) {
 
 function logResult(exerciseId, outcome) {
   if (state.active.results[exerciseId]) return;
-  const exercise = state.exercises.find((item) => item.id === exerciseId);
+  const exercise = state.exercises.find((item) => item.id === exerciseId && item.enabled);
   if (!exercise) return;
-  const levelIndex = exercise.currentIndex;
-  const weight = exercise.levels[levelIndex];
-  state.active.results[exerciseId] = { outcome, levelIndex, weight, loggedAt: new Date().toISOString() };
-  exercise.currentIndex = outcome === "success"
-    ? Math.min(levelIndex + 1, exercise.levels.length - 1)
-    : Math.max(levelIndex - 1, 0);
-  notice = "Saved on this device.";
+
+  const before = exerciseSnapshot(exercise);
+  state.active.results[exerciseId] = {
+    outcome,
+    levelIndex: exercise.currentIndex,
+    weight: currentWeight(exercise),
+    sets: exercise.sets,
+    reps: exercise.goalReps,
+    before,
+    loggedAt: new Date().toISOString()
+  };
+  applyOutcome(exercise, outcome);
+
+  const messages = {
+    success: "Success logged. The next prescription moves up one level.",
+    failure: `Failure logged. The next prescription drops ${FAILURE_DROP_LEVELS} levels.`,
+    skipped: "Skipped. The prescription stays unchanged."
+  };
+  notice = messages[outcome];
   persist();
   render();
+}
+
+function applyOutcome(exercise, outcome) {
+  if (outcome === "skipped") return;
+  const current = exercise.currentIndex;
+  const benchmark = exercise.benchmarkIndex;
+  const sets = exercise.sets;
+  const max = exercise.levels.length - 1;
+
+  if (outcome === "failure") {
+    exercise.currentIndex = Math.max(0, current - FAILURE_DROP_LEVELS);
+    exercise.goalReps = sets >= 3 ? exercise.goalReps + 1 : exercise.goalReps;
+    exercise.sets = sets < 3 ? sets + 1 : 1;
+    return;
+  }
+
+  const attemptedNextLevel = current + 1;
+  exercise.benchmarkIndex = Math.min(max, Math.max(benchmark, attemptedNextLevel));
+  if (current === max && sets >= 3) exercise.goalReps += 1;
+
+  if (sets < 3 && attemptedNextLevel >= max) exercise.sets = sets + 1;
+  else if (attemptedNextLevel >= max) exercise.sets = 1;
+  else if (attemptedNextLevel < benchmark) exercise.sets = sets;
+  else exercise.sets = 1;
+
+  exercise.currentIndex = current === max ? Math.max(0, current - FAILURE_DROP_LEVELS) : current + 1;
 }
 
 function undoResult(exerciseId) {
   const result = state.active.results[exerciseId];
   const exercise = state.exercises.find((item) => item.id === exerciseId);
   if (!result || !exercise) return;
-  exercise.currentIndex = result.levelIndex;
+  restoreExercise(exercise, result.before);
   delete state.active.results[exerciseId];
   notice = "Log entry undone.";
   persist();
@@ -230,23 +369,21 @@ function undoResult(exerciseId) {
 }
 
 function completeWorkout() {
-  const allLogged = state.exercises.every((exercise) => state.active.results[exercise.id]);
-  if (!allLogged) {
-    notice = "Log every exercise before completing the workout.";
+  const exercises = enabledExercises();
+  if (!exercises.length || !exercises.every((exercise) => state.active.results[exercise.id])) {
+    notice = "Log or skip every enabled exercise before completing the workout.";
     render();
     return;
   }
+
   const session = {
     id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}`,
     date: state.active.date,
     completedAt: new Date().toISOString(),
-    exercises: state.exercises.map((exercise) => ({
-      exerciseId: exercise.id,
-      name: exercise.name,
-      equipment: exercise.equipment,
-      weight: state.active.results[exercise.id].weight,
-      outcome: state.active.results[exercise.id].outcome
-    }))
+    exercises: exercises.map((exercise) => {
+      const result = state.active.results[exercise.id];
+      return { exerciseId: exercise.id, name: exercise.name, equipment: exercise.equipment, weight: result.weight, sets: result.sets, reps: result.reps, outcome: result.outcome };
+    })
   };
   state.sessions.unshift(session);
   state.active = makeActiveWorkout();
@@ -257,19 +394,68 @@ function completeWorkout() {
 }
 
 function resetWorkout() {
-  if (!Object.keys(state.active.results).length || window.confirm("Reset this workout and undo its progression changes?")) {
-    Object.keys(state.active.results).forEach(undoResultWithoutRender);
-    state.active = makeActiveWorkout();
-    notice = "Workout reset.";
-    persist();
-    render();
-  }
+  const resultIds = Object.keys(state.active.results);
+  if (resultIds.length && !window.confirm("Reset this workout and undo its progression changes?")) return;
+  resultIds.forEach((exerciseId) => {
+    const exercise = state.exercises.find((item) => item.id === exerciseId);
+    if (exercise) restoreExercise(exercise, state.active.results[exerciseId].before);
+  });
+  state.active = makeActiveWorkout();
+  notice = "Workout reset.";
+  persist();
+  render();
 }
 
-function undoResultWithoutRender(exerciseId) {
-  const result = state.active.results[exerciseId];
+function toggleExercise(exerciseId) {
   const exercise = state.exercises.find((item) => item.id === exerciseId);
-  if (result && exercise) exercise.currentIndex = result.levelIndex;
+  if (!exercise) return;
+  if (state.active.results[exerciseId]) {
+    notice = "Undo this exercise’s current result before excluding it.";
+    render();
+    return;
+  }
+  if (exercise.enabled && enabledExercises().length === 1) {
+    notice = "At least one exercise must remain included.";
+    render();
+    return;
+  }
+  exercise.enabled = !exercise.enabled;
+  notice = `${exercise.name} ${exercise.enabled ? "included" : "excluded"}.`;
+  persist();
+  render();
+}
+
+function resetExercise(exerciseId) {
+  const exercise = state.exercises.find((item) => item.id === exerciseId);
+  if (!exercise || state.active.results[exerciseId]) return;
+  exercise.currentIndex = exercise.baseIndex;
+  exercise.benchmarkIndex = exercise.baseIndex;
+  exercise.goalReps = 5;
+  exercise.sets = 1;
+  notice = `${exercise.name} reset to ${currentWeight(exercise)}.`;
+  persist();
+  render();
+}
+
+function updateExerciseField(exerciseId, field, value) {
+  const exercise = state.exercises.find((item) => item.id === exerciseId);
+  if (!exercise || state.active.results[exerciseId]) return;
+  const numeric = Number(value);
+  if (!Number.isInteger(numeric)) return;
+
+  if (field === "currentIndex") {
+    exercise.currentIndex = clamp(numeric, 0, exercise.levels.length - 1);
+    exercise.benchmarkIndex = Math.max(exercise.benchmarkIndex, exercise.currentIndex);
+  } else if (field === "benchmarkIndex") {
+    exercise.benchmarkIndex = clamp(Math.max(numeric, exercise.currentIndex), 0, exercise.levels.length - 1);
+  } else if (field === "sets") {
+    exercise.sets = clamp(numeric, 1, 3);
+  } else if (field === "goalReps") {
+    exercise.goalReps = clamp(numeric, 1, 99);
+  }
+  notice = `${exercise.name} updated.`;
+  persist();
+  render();
 }
 
 function exportData() {
@@ -314,7 +500,9 @@ function resetAllData() {
 function loadState() {
   try {
     const saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
-    return normalizeState(saved) || makeInitialState();
+    const normalized = normalizeState(saved);
+    if (normalized) localStorage.setItem(STORAGE_KEY, JSON.stringify(normalized));
+    return normalized || makeInitialState();
   } catch {
     return makeInitialState();
   }
@@ -322,28 +510,112 @@ function loadState() {
 
 function normalizeState(value) {
   if (!value || !Array.isArray(value.exercises) || !Array.isArray(value.sessions)) return null;
-  const exercises = value.exercises
-    .filter((item) => item && item.id && item.name && Array.isArray(item.levels) && item.levels.length)
-    .map((item) => ({
-      id: String(item.id),
-      name: String(item.name),
-      equipment: String(item.equipment || "Accessory"),
-      levels: item.levels.map(String),
-      currentIndex: clamp(Number.isInteger(item.currentIndex) ? item.currentIndex : 0, 0, item.levels.length - 1)
-    }));
-  if (!exercises.length) return null;
-  const active = value.active && value.active.date && value.active.results
-    ? { date: String(value.active.date), startedAt: String(value.active.startedAt || new Date().toISOString()), results: value.active.results }
-    : makeActiveWorkout();
-  return { exercises, sessions: Array.isArray(value.sessions) ? value.sessions : [], active };
+  const savedById = new Map(value.exercises.filter(Boolean).map((exercise) => [String(exercise.id), exercise]));
+  const defaultsById = new Map(DEFAULT_EXERCISES.map((exercise) => [exercise.id, exercise]));
+  const exercises = DEFAULT_EXERCISES.map((fallback) => normalizeExercise(savedById.get(fallback.id), fallback, value.version));
+
+  value.exercises.forEach((saved) => {
+    if (saved?.id && !defaultsById.has(String(saved.id))) exercises.push(normalizeExercise(saved, null, value.version));
+  });
+  const active = normalizeActive(value.active, exercises);
+  return { version: STATE_VERSION, exercises, sessions: value.sessions, active };
+}
+
+function normalizeExercise(saved, fallback, savedVersion) {
+  const source = saved || fallback;
+  const migrateLevels = fallback && savedVersion !== STATE_VERSION;
+  const resetLegacyMachine = migrateLevels && fallback.equipment === "Machine";
+  const levels = (migrateLevels ? fallback.levels : source?.levels)?.map(String) || [...DUMBBELL_LEVELS];
+  const currentIndex = resetLegacyMachine ? fallback.currentIndex : migratedIndex(source, source?.currentIndex, levels, fallback?.currentIndex || 0);
+  const benchmarkIndex = resetLegacyMachine ? currentIndex : migratedIndex(source, source?.benchmarkIndex, levels, currentIndex);
+  return {
+    id: String(source.id),
+    name: String(fallback?.name || source.name),
+    equipment: String(fallback?.equipment || source.equipment || "Accessory"),
+    levels,
+    baseIndex: clamp(Number.isInteger(source.baseIndex) ? source.baseIndex : fallback?.baseIndex || 0, 0, levels.length - 1),
+    currentIndex,
+    benchmarkIndex: Math.max(currentIndex, benchmarkIndex),
+    goalReps: clamp(Number.isInteger(source.goalReps) ? source.goalReps : 5, 1, 99),
+    sets: clamp(Number.isInteger(source.sets) ? source.sets : 1, 1, 3),
+    enabled: source.enabled !== false
+  };
+}
+
+function migratedIndex(source, sourceIndex, targetLevels, fallbackIndex) {
+  if (source && Array.isArray(source.levels) && Number.isInteger(sourceIndex)) {
+    const sourceWeight = source.levels[clamp(sourceIndex, 0, source.levels.length - 1)];
+    return nearestLevelIndex(targetLevels, sourceWeight);
+  }
+  return clamp(Number.isInteger(fallbackIndex) ? fallbackIndex : 0, 0, targetLevels.length - 1);
+}
+
+function normalizeActive(active, exercises) {
+  if (!active || !active.date || !active.results) return makeActiveWorkout();
+  const results = {};
+  Object.entries(active.results).forEach(([exerciseId, result]) => {
+    const exercise = exercises.find((item) => item.id === exerciseId);
+    if (!exercise || !result || !["success", "failure", "skipped"].includes(result.outcome)) return;
+    const levelIndex = nearestLevelIndex(exercise.levels, result.weight || exercise.levels[result.levelIndex] || currentWeight(exercise));
+    const before = result.before ? normalizeSnapshot(result.before, exercise) : { ...exerciseSnapshot(exercise), currentIndex: levelIndex };
+    results[exerciseId] = {
+      outcome: result.outcome,
+      levelIndex,
+      weight: String(result.weight || exercise.levels[levelIndex]),
+      sets: clamp(Number.isInteger(result.sets) ? result.sets : before.sets, 1, 3),
+      reps: clamp(Number.isInteger(result.reps) ? result.reps : before.goalReps, 1, 99),
+      before,
+      loggedAt: String(result.loggedAt || new Date().toISOString())
+    };
+  });
+  return { date: String(active.date), startedAt: String(active.startedAt || new Date().toISOString()), results };
+}
+
+function normalizeSnapshot(snapshot, exercise) {
+  return {
+    currentIndex: clamp(Number.isInteger(snapshot.currentIndex) ? snapshot.currentIndex : exercise.currentIndex, 0, exercise.levels.length - 1),
+    benchmarkIndex: clamp(Number.isInteger(snapshot.benchmarkIndex) ? snapshot.benchmarkIndex : exercise.benchmarkIndex, 0, exercise.levels.length - 1),
+    goalReps: clamp(Number.isInteger(snapshot.goalReps) ? snapshot.goalReps : exercise.goalReps, 1, 99),
+    sets: clamp(Number.isInteger(snapshot.sets) ? snapshot.sets : exercise.sets, 1, 3)
+  };
 }
 
 function makeInitialState() {
-  return { exercises: structuredClone(DEFAULT_EXERCISES), sessions: [], active: makeActiveWorkout() };
+  return { version: STATE_VERSION, exercises: structuredClone(DEFAULT_EXERCISES), sessions: [], active: makeActiveWorkout() };
 }
 
 function makeActiveWorkout() {
   return { date: dateKey(), startedAt: new Date().toISOString(), results: {} };
+}
+
+function exerciseSnapshot(exercise) {
+  return { currentIndex: exercise.currentIndex, benchmarkIndex: exercise.benchmarkIndex, goalReps: exercise.goalReps, sets: exercise.sets };
+}
+
+function restoreExercise(exercise, snapshot) {
+  const normalized = normalizeSnapshot(snapshot || {}, exercise);
+  exercise.currentIndex = normalized.currentIndex;
+  exercise.benchmarkIndex = normalized.benchmarkIndex;
+  exercise.goalReps = normalized.goalReps;
+  exercise.sets = normalized.sets;
+}
+
+function enabledExercises() {
+  return state.exercises.filter((exercise) => exercise.enabled);
+}
+
+function currentWeight(exercise) {
+  return exercise.levels[exercise.currentIndex];
+}
+
+function nearestLevelIndex(levels, weight) {
+  const target = numericWeight(weight);
+  if (!Number.isFinite(target)) return 0;
+  return levels.reduce((best, level, index) => Math.abs(numericWeight(level) - target) < Math.abs(numericWeight(levels[best]) - target) ? index : best, 0);
+}
+
+function numericWeight(value) {
+  return Number.parseFloat(String(value));
 }
 
 function persist() {
@@ -372,12 +644,11 @@ async function installApp() {
 }
 
 async function registerServiceWorker() {
-  if ("serviceWorker" in navigator) {
-    try {
-      await navigator.serviceWorker.register("./sw.js");
-    } catch {
-      showNotice("Offline caching could not start, but local data still works.");
-    }
+  if (!("serviceWorker" in navigator)) return;
+  try {
+    await navigator.serviceWorker.register("./sw.js");
+  } catch {
+    showNotice("Offline caching could not start, but local data still works.");
   }
 }
 
