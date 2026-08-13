@@ -1,17 +1,18 @@
 const STORAGE_KEY = "accessory-lift-tracker-v1";
-const STATE_VERSION = 2;
+const STATE_VERSION = 3;
 const FAILURE_DROP_LEVELS = 5;
 
 const DUMBBELL_LEVELS = ["5 lb", "7.5 lb", "10 lb", "12.5 lb", "15 lb", "17.5 lb", "20 lb", "22.5 lb", "25 lb", "27.5 lb", "30 lb", "35 lb", "40 lb", "45 lb", "50 lb", "55 lb", "60 lb", "65 lb", "70 lb", "75 lb", "80 lb", "85 lb", "90 lb", "95 lb", "100 lb"];
 const CABLE_LEVELS = ["10 lb", "20 lb", "30 lb", "40 lb", "50 lb", "60 lb", "70 lb", "80 lb", "90 lb", "100 lb", "110 lb", "120 lb", "130 lb", "140 lb", "150 lb"];
 const MACHINE_LEVELS = ["20 lb", "35 lb", "50 lb", "65 lb", "80 lb", "95 lb", "110 lb", "125 lb", "145 lb", "165 lb", "185 lb", "205 lb", "225 lb"];
+const LEG_MACHINE_LEVELS = ["10 lb", "25 lb", "40 lb", "55 lb", "70 lb", "85 lb", "100 lb", "115 lb", "135 lb", "155 lb", "175 lb", "195 lb", "215 lb"];
 
 const DEFAULT_EXERCISES = [
   defaultExercise("incline-db-press", "Incline DB Press", "Dumbbell", DUMBBELL_LEVELS, "25 lb"),
   defaultExercise("lat-pulldown", "Lat Pulldown", "Machine", MACHINE_LEVELS, "20 lb"),
   defaultExercise("machine-row", "Machine Rows", "Machine", MACHINE_LEVELS, "20 lb"),
-  defaultExercise("leg-extension", "Leg Extensions", "Machine", MACHINE_LEVELS, "20 lb"),
-  defaultExercise("hamstring-curl", "Hamstring Curls", "Machine", MACHINE_LEVELS, "20 lb"),
+  defaultExercise("leg-extension", "Leg Extensions", "Leg curl / extension", LEG_MACHINE_LEVELS, "10 lb"),
+  defaultExercise("hamstring-curl", "Hamstring Curls", "Leg curl / extension", LEG_MACHINE_LEVELS, "10 lb"),
   defaultExercise("bicep-curls", "Bicep Curls", "Dumbbell", DUMBBELL_LEVELS, "20 lb"),
   defaultExercise("triceps-pushdown", "Triceps Pushdown", "Cable", CABLE_LEVELS, "30 lb"),
   defaultExercise("front-delt-raise", "Front Delt Raise", "Dumbbell", DUMBBELL_LEVELS, "7.5 lb"),
@@ -524,10 +525,20 @@ function normalizeState(value) {
 function normalizeExercise(saved, fallback, savedVersion) {
   const source = saved || fallback;
   const migrateLevels = fallback && savedVersion !== STATE_VERSION;
-  const resetLegacyMachine = migrateLevels && fallback.equipment === "Machine";
+  const savedVersionNumber = Number.isInteger(savedVersion) ? savedVersion : 1;
+  const resetLegacyMachine = migrateLevels && savedVersionNumber < 2 && fallback.equipment === "Machine";
+  const preserveStructuredLevel = Boolean(saved && migrateLevels && savedVersionNumber >= 2);
   const levels = (migrateLevels ? fallback.levels : source?.levels)?.map(String) || [...DUMBBELL_LEVELS];
-  const currentIndex = resetLegacyMachine ? fallback.currentIndex : migratedIndex(source, source?.currentIndex, levels, fallback?.currentIndex || 0);
-  const benchmarkIndex = resetLegacyMachine ? currentIndex : migratedIndex(source, source?.benchmarkIndex, levels, currentIndex);
+  const currentIndex = resetLegacyMachine
+    ? fallback.currentIndex
+    : preserveStructuredLevel
+      ? clamp(Number.isInteger(source.currentIndex) ? source.currentIndex : fallback?.currentIndex || 0, 0, levels.length - 1)
+      : migratedIndex(source, source?.currentIndex, levels, fallback?.currentIndex || 0);
+  const benchmarkIndex = resetLegacyMachine
+    ? currentIndex
+    : preserveStructuredLevel
+      ? clamp(Number.isInteger(source.benchmarkIndex) ? source.benchmarkIndex : currentIndex, 0, levels.length - 1)
+      : migratedIndex(source, source?.benchmarkIndex, levels, currentIndex);
   return {
     id: String(source.id),
     name: String(fallback?.name || source.name),

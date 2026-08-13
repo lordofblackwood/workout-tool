@@ -1,9 +1,9 @@
-const CACHE_NAME = "accessory-lift-tracker-v7";
+const CACHE_NAME = "accessory-lift-tracker-v9";
 const APP_SHELL = [
   "./",
   "./index.html",
   "./styles.css?v=2",
-  "./app.js?v=6",
+  "./app.js?v=7",
   "./manifest.webmanifest",
   "./icons/icon.svg",
   "./icons/icon-192.png",
