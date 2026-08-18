@@ -1,5 +1,13 @@
+import {
+  makeVolumeChart,
+  normalizePrescription,
+  normalizeVolumeChart,
+  prescriptionAt,
+  progressExercise
+} from "./progression.mjs?v=1";
+
 const STORAGE_KEY = "accessory-lift-tracker-v1";
-const STATE_VERSION = 3;
+const STATE_VERSION = 4;
 const FAILURE_DROP_LEVELS = 5;
 
 const DUMBBELL_LEVELS = ["5 lb", "7.5 lb", "10 lb", "12.5 lb", "15 lb", "17.5 lb", "20 lb", "22.5 lb", "25 lb", "27.5 lb", "30 lb", "35 lb", "40 lb", "45 lb", "50 lb", "55 lb", "60 lb", "65 lb", "70 lb", "75 lb", "80 lb", "85 lb", "90 lb", "95 lb", "100 lb"];
@@ -47,7 +55,7 @@ registerServiceWorker();
 
 function defaultExercise(id, name, equipment, levels, startingWeight) {
   const currentIndex = Math.max(0, levels.indexOf(startingWeight));
-  return { id, name, equipment, levels: [...levels], baseIndex: 0, currentIndex, benchmarkIndex: currentIndex, goalReps: 5, sets: 1, enabled: true };
+  return { id, name, equipment, levels: [...levels], baseIndex: 0, currentIndex, benchmarkIndex: currentIndex, volumeChart: makeVolumeChart(levels.length), enabled: true };
 }
 
 function handleClick(event) {
@@ -147,9 +155,10 @@ function renderExercise(exercise, result) {
   cardHeading.append(nameBlock);
 
   const levelBlock = el("div", undefined, "level-block");
+  const prescription = prescriptionAt(exercise);
   levelBlock.append(el("div", result ? "Next prescription" : "Current prescription", "level-label"));
   levelBlock.append(el("p", currentWeight(exercise), "level-value"));
-  levelBlock.append(el("p", `${exercise.sets} ${exercise.sets === 1 ? "set" : "sets"} × ${exercise.goalReps} reps · benchmark ${exercise.levels[exercise.benchmarkIndex]}`, "prescription-meta"));
+  levelBlock.append(el("p", `${prescription.sets} ${prescription.sets === 1 ? "set" : "sets"} × ${prescription.reps} reps · benchmark ${exercise.levels[exercise.benchmarkIndex]}`, "prescription-meta"));
 
   const progressRow = el("div", undefined, "progress-row");
   const track = el("div", undefined, "progress-track");
@@ -201,10 +210,11 @@ function renderExerciseSettingCard(exercise) {
   heading.append(nameBlock, toggle);
   card.append(heading);
 
+  const prescription = prescriptionAt(exercise);
   const controls = el("div", undefined, "settings-grid");
   controls.append(settingSelect("Current weight", exercise, "currentIndex", exercise.currentIndex, exercise.levels.map((label, index) => [index, label])));
   controls.append(settingSelect("Benchmark", exercise, "benchmarkIndex", exercise.benchmarkIndex, exercise.levels.map((label, index) => [index, label])));
-  controls.append(settingSelect("Sets", exercise, "sets", exercise.sets, [[1, "1 set"], [2, "2 sets"], [3, "3 sets"]]));
+  controls.append(settingSelect("Sets at this weight", exercise, "sets", prescription.sets, [[1, "1 set"], [2, "2 sets"], [3, "3 sets"]]));
 
   const repsLabel = el("label", undefined, "setting-field");
   repsLabel.append(el("span", "Target reps", "level-label"));
@@ -212,7 +222,7 @@ function renderExerciseSettingCard(exercise) {
   repsInput.type = "number";
   repsInput.min = "1";
   repsInput.max = "99";
-  repsInput.value = exercise.goalReps;
+  repsInput.value = prescription.reps;
   repsInput.dataset.exerciseField = "goalReps";
   repsInput.dataset.exerciseId = exercise.id;
   repsInput.disabled = Boolean(state.active.results[exercise.id]);
@@ -221,7 +231,7 @@ function renderExerciseSettingCard(exercise) {
   card.append(controls);
 
   const footer = el("div", undefined, "settings-footer");
-  footer.append(el("span", state.active.results[exercise.id] ? "Undo this workout result before editing." : `Failure drops ${FAILURE_DROP_LEVELS} levels.`, "helper-text"));
+  footer.append(el("span", state.active.results[exercise.id] ? "Undo this workout result before editing." : `Each weight remembers its volume. Failure drops ${FAILURE_DROP_LEVELS} levels.`, "helper-text"));
   const reset = button("Reset to base", "button compact", "reset-exercise", exercise.id);
   reset.disabled = Boolean(state.active.results[exercise.id]);
   footer.append(reset);
@@ -311,20 +321,23 @@ function logResult(exerciseId, outcome) {
   if (!exercise) return;
 
   const before = exerciseSnapshot(exercise);
+  const prescription = prescriptionAt(exercise);
   state.active.results[exerciseId] = {
     outcome,
     levelIndex: exercise.currentIndex,
     weight: currentWeight(exercise),
-    sets: exercise.sets,
-    reps: exercise.goalReps,
+    sets: prescription.sets,
+    reps: prescription.reps,
     before,
     loggedAt: new Date().toISOString()
   };
   applyOutcome(exercise, outcome);
 
   const messages = {
-    success: "Success logged. The next prescription moves up one level.",
-    failure: `Failure logged. The next prescription drops ${FAILURE_DROP_LEVELS} levels.`,
+    success: before.currentIndex === exercise.levels.length - 1
+      ? `Success logged at the highest weight. Volume advanced and the next prescription drops ${FAILURE_DROP_LEVELS} levels.`
+      : "Success logged. The next weight uses its stored prescription.",
+    failure: `Failure logged. The failed prescription stays here; the lower rebuild advances one volume step and drops ${FAILURE_DROP_LEVELS} levels.`,
     skipped: "Skipped. The prescription stays unchanged."
   };
   notice = messages[outcome];
@@ -333,29 +346,10 @@ function logResult(exerciseId, outcome) {
 }
 
 function applyOutcome(exercise, outcome) {
-  if (outcome === "skipped") return;
-  const current = exercise.currentIndex;
-  const benchmark = exercise.benchmarkIndex;
-  const sets = exercise.sets;
-  const max = exercise.levels.length - 1;
-
-  if (outcome === "failure") {
-    exercise.currentIndex = Math.max(0, current - FAILURE_DROP_LEVELS);
-    exercise.goalReps = sets >= 3 ? exercise.goalReps + 1 : exercise.goalReps;
-    exercise.sets = sets < 3 ? sets + 1 : 1;
-    return;
-  }
-
-  const attemptedNextLevel = current + 1;
-  exercise.benchmarkIndex = Math.min(max, Math.max(benchmark, attemptedNextLevel));
-  if (current === max && sets >= 3) exercise.goalReps += 1;
-
-  if (sets < 3 && attemptedNextLevel >= max) exercise.sets = sets + 1;
-  else if (attemptedNextLevel >= max) exercise.sets = 1;
-  else if (attemptedNextLevel < benchmark) exercise.sets = sets;
-  else exercise.sets = 1;
-
-  exercise.currentIndex = current === max ? Math.max(0, current - FAILURE_DROP_LEVELS) : current + 1;
+  const progressed = progressExercise(exercise, outcome, FAILURE_DROP_LEVELS);
+  exercise.currentIndex = progressed.currentIndex;
+  exercise.benchmarkIndex = progressed.benchmarkIndex;
+  exercise.volumeChart = progressed.volumeChart;
 }
 
 function undoResult(exerciseId) {
@@ -432,8 +426,7 @@ function resetExercise(exerciseId) {
   if (!exercise || state.active.results[exerciseId]) return;
   exercise.currentIndex = exercise.baseIndex;
   exercise.benchmarkIndex = exercise.baseIndex;
-  exercise.goalReps = 5;
-  exercise.sets = 1;
+  exercise.volumeChart = makeVolumeChart(exercise.levels.length);
   notice = `${exercise.name} reset to ${currentWeight(exercise)}.`;
   persist();
   render();
@@ -451,9 +444,11 @@ function updateExerciseField(exerciseId, field, value) {
   } else if (field === "benchmarkIndex") {
     exercise.benchmarkIndex = clamp(Math.max(numeric, exercise.currentIndex), 0, exercise.levels.length - 1);
   } else if (field === "sets") {
-    exercise.sets = clamp(numeric, 1, 3);
+    const prescription = prescriptionAt(exercise);
+    exercise.volumeChart[exercise.currentIndex] = normalizePrescription({ ...prescription, sets: numeric });
   } else if (field === "goalReps") {
-    exercise.goalReps = clamp(numeric, 1, 99);
+    const prescription = prescriptionAt(exercise);
+    exercise.volumeChart[exercise.currentIndex] = normalizePrescription({ ...prescription, reps: numeric });
   }
   notice = `${exercise.name} updated.`;
   persist();
@@ -512,23 +507,25 @@ function loadState() {
 
 function normalizeState(value) {
   if (!value || !Array.isArray(value.exercises) || !Array.isArray(value.sessions)) return null;
+  const savedVersion = Number.isInteger(value.version) ? value.version : 1;
+  const sessions = value.sessions;
   const savedById = new Map(value.exercises.filter(Boolean).map((exercise) => [String(exercise.id), exercise]));
   const defaultsById = new Map(DEFAULT_EXERCISES.map((exercise) => [exercise.id, exercise]));
-  const exercises = DEFAULT_EXERCISES.map((fallback) => normalizeExercise(savedById.get(fallback.id), fallback, value.version));
+  const exercises = DEFAULT_EXERCISES.map((fallback) => normalizeExercise(savedById.get(fallback.id), fallback, savedVersion, sessions));
 
   value.exercises.forEach((saved) => {
-    if (saved?.id && !defaultsById.has(String(saved.id))) exercises.push(normalizeExercise(saved, null, value.version));
+    if (saved?.id && !defaultsById.has(String(saved.id))) exercises.push(normalizeExercise(saved, null, savedVersion, sessions));
   });
-  const active = normalizeActive(value.active, exercises);
-  return { version: STATE_VERSION, exercises, sessions: value.sessions, active };
+  const active = normalizeActive(value.active, exercises, sessions);
+  if (savedVersion < STATE_VERSION) replayActiveResults(active, exercises);
+  return { version: STATE_VERSION, exercises, sessions, active };
 }
 
-function normalizeExercise(saved, fallback, savedVersion) {
+function normalizeExercise(saved, fallback, savedVersion, sessions) {
   const source = saved || fallback;
   const migrateLevels = fallback && savedVersion !== STATE_VERSION;
-  const savedVersionNumber = Number.isInteger(savedVersion) ? savedVersion : 1;
-  const resetLegacyMachine = migrateLevels && savedVersionNumber < 2 && fallback.equipment === "Machine";
-  const preserveStructuredLevel = Boolean(saved && migrateLevels && savedVersionNumber >= 2);
+  const resetLegacyMachine = migrateLevels && savedVersion < 2 && fallback.equipment === "Machine";
+  const preserveStructuredLevel = Boolean(saved && migrateLevels && savedVersion >= 2);
   const levels = (migrateLevels ? fallback.levels : source?.levels)?.map(String) || [...DUMBBELL_LEVELS];
   const currentIndex = resetLegacyMachine
     ? fallback.currentIndex
@@ -540,18 +537,55 @@ function normalizeExercise(saved, fallback, savedVersion) {
     : preserveStructuredLevel
       ? clamp(Number.isInteger(source.benchmarkIndex) ? source.benchmarkIndex : currentIndex, 0, levels.length - 1)
       : migratedIndex(source, source?.benchmarkIndex, levels, currentIndex);
+  const baseIndex = clamp(Number.isInteger(source.baseIndex) ? source.baseIndex : fallback?.baseIndex || 0, 0, levels.length - 1);
+  const normalizedBenchmarkIndex = Math.max(currentIndex, benchmarkIndex);
+  const id = String(source.id);
+  const name = String(fallback?.name || source.name);
+  const volumeChart = savedVersion >= STATE_VERSION && Array.isArray(source.volumeChart)
+    ? normalizeVolumeChart(source.volumeChart, levels.length)
+    : migrateLegacyVolumeChart(source, levels, baseIndex, currentIndex, normalizedBenchmarkIndex, sessions, id, name);
   return {
-    id: String(source.id),
-    name: String(fallback?.name || source.name),
+    id,
+    name,
     equipment: String(fallback?.equipment || source.equipment || "Accessory"),
     levels,
-    baseIndex: clamp(Number.isInteger(source.baseIndex) ? source.baseIndex : fallback?.baseIndex || 0, 0, levels.length - 1),
+    baseIndex,
     currentIndex,
-    benchmarkIndex: Math.max(currentIndex, benchmarkIndex),
-    goalReps: clamp(Number.isInteger(source.goalReps) ? source.goalReps : 5, 1, 99),
-    sets: clamp(Number.isInteger(source.sets) ? source.sets : 1, 1, 3),
+    benchmarkIndex: normalizedBenchmarkIndex,
+    volumeChart,
     enabled: source.enabled !== false
   };
+}
+
+function migrateLegacyVolumeChart(source, levels, baseIndex, currentIndex, benchmarkIndex, sessions, exerciseId, exerciseName) {
+  const legacyPrescription = normalizePrescription({ sets: source?.sets, reps: source?.goalReps });
+  const volumeChart = makeVolumeChart(levels.length);
+  const corridorEnd = Math.max(currentIndex, benchmarkIndex - 1);
+
+  for (let index = baseIndex; index <= corridorEnd; index += 1) {
+    volumeChart[index] = { ...legacyPrescription };
+  }
+  volumeChart[currentIndex] = { ...legacyPrescription };
+
+  latestAttemptsByLevel(sessions, exerciseId, exerciseName, levels).forEach((entry, levelIndex) => {
+    if (entry.outcome !== "failure" || levelIndex <= currentIndex || levelIndex > benchmarkIndex) return;
+    volumeChart[levelIndex] = normalizePrescription({ sets: entry.sets, reps: entry.reps });
+  });
+  return volumeChart;
+}
+
+function latestAttemptsByLevel(sessions, exerciseId, exerciseName, levels) {
+  const attempts = new Map();
+  sessions.forEach((session) => {
+    if (!Array.isArray(session?.exercises)) return;
+    session.exercises.forEach((entry) => {
+      const matchesExercise = String(entry?.exerciseId || "") === exerciseId || (!entry?.exerciseId && String(entry?.name || "") === exerciseName);
+      if (!matchesExercise || entry.outcome === "skipped" || !Number.isFinite(numericWeight(entry.weight))) return;
+      const levelIndex = nearestLevelIndex(levels, entry.weight);
+      if (!attempts.has(levelIndex)) attempts.set(levelIndex, entry);
+    });
+  });
+  return attempts;
 }
 
 function migratedIndex(source, sourceIndex, targetLevels, fallbackIndex) {
@@ -562,20 +596,22 @@ function migratedIndex(source, sourceIndex, targetLevels, fallbackIndex) {
   return clamp(Number.isInteger(fallbackIndex) ? fallbackIndex : 0, 0, targetLevels.length - 1);
 }
 
-function normalizeActive(active, exercises) {
+function normalizeActive(active, exercises, sessions) {
   if (!active || !active.date || !active.results) return makeActiveWorkout();
   const results = {};
   Object.entries(active.results).forEach(([exerciseId, result]) => {
     const exercise = exercises.find((item) => item.id === exerciseId);
     if (!exercise || !result || !["success", "failure", "skipped"].includes(result.outcome)) return;
     const levelIndex = nearestLevelIndex(exercise.levels, result.weight || exercise.levels[result.levelIndex] || currentWeight(exercise));
-    const before = result.before ? normalizeSnapshot(result.before, exercise) : { ...exerciseSnapshot(exercise), currentIndex: levelIndex };
+    const before = result.before ? normalizeSnapshot(result.before, exercise, sessions) : { ...exerciseSnapshot(exercise), currentIndex: levelIndex };
+    const beforePrescription = before.volumeChart[before.currentIndex] || prescriptionAt(exercise);
+    const performedPrescription = normalizePrescription({ sets: result.sets, reps: result.reps }, beforePrescription);
     results[exerciseId] = {
       outcome: result.outcome,
       levelIndex,
       weight: String(result.weight || exercise.levels[levelIndex]),
-      sets: clamp(Number.isInteger(result.sets) ? result.sets : before.sets, 1, 3),
-      reps: clamp(Number.isInteger(result.reps) ? result.reps : before.goalReps, 1, 99),
+      sets: performedPrescription.sets,
+      reps: performedPrescription.reps,
       before,
       loggedAt: String(result.loggedAt || new Date().toISOString())
     };
@@ -583,13 +619,26 @@ function normalizeActive(active, exercises) {
   return { date: String(active.date), startedAt: String(active.startedAt || new Date().toISOString()), results };
 }
 
-function normalizeSnapshot(snapshot, exercise) {
+function normalizeSnapshot(snapshot, exercise, sessions = []) {
+  const currentIndex = clamp(Number.isInteger(snapshot.currentIndex) ? snapshot.currentIndex : exercise.currentIndex, 0, exercise.levels.length - 1);
+  const benchmarkIndex = clamp(Number.isInteger(snapshot.benchmarkIndex) ? snapshot.benchmarkIndex : exercise.benchmarkIndex, currentIndex, exercise.levels.length - 1);
+  const volumeChart = Array.isArray(snapshot.volumeChart)
+    ? normalizeVolumeChart(snapshot.volumeChart, exercise.levels.length)
+    : migrateLegacyVolumeChart(snapshot, exercise.levels, exercise.baseIndex, currentIndex, benchmarkIndex, sessions, exercise.id, exercise.name);
   return {
-    currentIndex: clamp(Number.isInteger(snapshot.currentIndex) ? snapshot.currentIndex : exercise.currentIndex, 0, exercise.levels.length - 1),
-    benchmarkIndex: clamp(Number.isInteger(snapshot.benchmarkIndex) ? snapshot.benchmarkIndex : exercise.benchmarkIndex, 0, exercise.levels.length - 1),
-    goalReps: clamp(Number.isInteger(snapshot.goalReps) ? snapshot.goalReps : exercise.goalReps, 1, 99),
-    sets: clamp(Number.isInteger(snapshot.sets) ? snapshot.sets : exercise.sets, 1, 3)
+    currentIndex,
+    benchmarkIndex,
+    volumeChart
   };
+}
+
+function replayActiveResults(active, exercises) {
+  Object.entries(active.results).forEach(([exerciseId, result]) => {
+    const exercise = exercises.find((item) => item.id === exerciseId);
+    if (!exercise) return;
+    restoreExercise(exercise, result.before);
+    applyOutcome(exercise, result.outcome);
+  });
 }
 
 function makeInitialState() {
@@ -601,15 +650,18 @@ function makeActiveWorkout() {
 }
 
 function exerciseSnapshot(exercise) {
-  return { currentIndex: exercise.currentIndex, benchmarkIndex: exercise.benchmarkIndex, goalReps: exercise.goalReps, sets: exercise.sets };
+  return {
+    currentIndex: exercise.currentIndex,
+    benchmarkIndex: exercise.benchmarkIndex,
+    volumeChart: normalizeVolumeChart(exercise.volumeChart, exercise.levels.length)
+  };
 }
 
 function restoreExercise(exercise, snapshot) {
   const normalized = normalizeSnapshot(snapshot || {}, exercise);
   exercise.currentIndex = normalized.currentIndex;
   exercise.benchmarkIndex = normalized.benchmarkIndex;
-  exercise.goalReps = normalized.goalReps;
-  exercise.sets = normalized.sets;
+  exercise.volumeChart = normalized.volumeChart;
 }
 
 function enabledExercises() {
