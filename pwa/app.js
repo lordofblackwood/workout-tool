@@ -288,7 +288,7 @@ function renderHistoryCard(session) {
   const card = el("article", undefined, "history-card");
   const heading = el("div", undefined, "history-heading");
   const title = el("div");
-  title.append(el("h3", formatDate(session.date)));
+  title.append(el("h3", formatDate(sessionDateKey(session))));
   title.append(el("p", `${session.exercises.length} exercises`, "meta"));
   heading.append(title, el("span", formatTime(session.completedAt), "meta"));
   card.append(heading);
@@ -377,10 +377,11 @@ function completeWorkout() {
     return;
   }
 
+  const completedAt = new Date();
   const session = {
     id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}`,
-    date: state.active.date,
-    completedAt: new Date().toISOString(),
+    date: dateKey(completedAt),
+    completedAt: completedAt.toISOString(),
     exercises: exercises.map((exercise) => {
       const result = state.active.results[exercise.id];
       return { exerciseId: exercise.id, name: exercise.name, equipment: exercise.equipment, weight: result.weight, sets: result.sets, reps: result.reps, outcome: result.outcome };
@@ -689,6 +690,11 @@ function dateKey(date = new Date()) {
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
+}
+
+function sessionDateKey(session) {
+  const completedAt = new Date(session.completedAt);
+  return Number.isNaN(completedAt.getTime()) ? session.date : dateKey(completedAt);
 }
 
 function formatDate(value) {
