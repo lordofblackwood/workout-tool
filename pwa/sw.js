@@ -1,9 +1,9 @@
-const CACHE_NAME = "accessory-lift-tracker-v12";
+const CACHE_NAME = "accessory-lift-tracker-v13";
 const APP_SHELL = [
   "./",
   "./index.html",
   "./styles.css?v=2",
-  "./app.js?v=9",
+  "./app.js?v=10",
   "./progression.mjs?v=1",
   "./manifest.webmanifest",
   "./powerlevel/widget.mjs",
@@ -15,7 +15,7 @@ const APP_SHELL = [
 ];
 
 self.addEventListener("install", (event) => {
-  event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_SHELL)));
+  event.waitUntil(caches.open(CACHE_NAME).then((cache) => cache.addAll(APP_SHELL.map((path) => new Request(path, { cache: "reload" })))));
   self.skipWaiting();
 });
 

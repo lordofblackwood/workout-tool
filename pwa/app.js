@@ -126,10 +126,12 @@ function renderWorkout() {
   summaryCopy.append(el("div", `${completedCount}/${exercises.length}`, "summary-number"));
   summaryCopy.append(el("div", "exercises logged", "summary-label"));
   const summaryActions = el("div", undefined, "footer-actions");
-  const completeButton = button("Complete workout", "button primary", "complete-workout");
-  completeButton.disabled = !exercises.length || completedCount !== exercises.length;
+  const hasUnloggedExercises = completedCount < exercises.length;
+  const completeButton = button(hasUnloggedExercises ? "Finish workout early" : "Complete workout", "button primary", "complete-workout");
+  completeButton.disabled = !exercises.length;
   summaryActions.append(completeButton, button("Reset log", "button", "reset-workout"));
   summary.append(summaryCopy, summaryActions);
+  if (hasUnloggedExercises) summary.append(el("p", "Finishing early marks all unlogged exercises as skipped.", "helper-text"));
   app.append(heading, summary);
 
   if (notice) app.append(el("p", notice, "notice"));
@@ -365,26 +367,33 @@ function undoResult(exerciseId) {
 
 function completeWorkout() {
   const exercises = enabledExercises();
-  if (!exercises.length || !exercises.every((exercise) => state.active.results[exercise.id])) {
-    notice = "Log or skip every enabled exercise before completing the workout.";
+  if (!exercises.length) {
+    notice = "Include at least one exercise before completing the workout.";
     render();
     return;
   }
 
+  const skippedCount = exercises.filter((exercise) => !state.active.results[exercise.id]).length;
   const completedAt = new Date();
   const session = {
     id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}`,
     date: dateKey(completedAt),
     completedAt: completedAt.toISOString(),
     exercises: exercises.map((exercise) => {
-      const result = state.active.results[exercise.id];
+      const result = state.active.results[exercise.id] || {
+        outcome: "skipped",
+        weight: currentWeight(exercise),
+        ...prescriptionAt(exercise)
+      };
       return { exerciseId: exercise.id, name: exercise.name, equipment: exercise.equipment, weight: result.weight, sets: result.sets, reps: result.reps, outcome: result.outcome };
     })
   };
   state.sessions.unshift(session);
   state.active = makeActiveWorkout();
   currentView = "history";
-  notice = "Workout completed and saved.";
+  notice = skippedCount
+    ? `Workout completed and saved. ${skippedCount} unlogged ${skippedCount === 1 ? "exercise was" : "exercises were"} skipped.`
+    : "Workout completed and saved.";
   persist();
   render();
 }

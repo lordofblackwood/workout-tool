@@ -24,8 +24,8 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v6
 
-      - name: Test progression logic
-        run: node --test tests/pwa-progression.test.mjs
+      - name: Test workout logic
+        run: node --test tests/*.test.mjs
 
       - name: Configure Pages
         uses: actions/configure-pages@v5
