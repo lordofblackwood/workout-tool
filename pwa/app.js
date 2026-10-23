@@ -14,6 +14,7 @@ const DUMBBELL_LEVELS = ["5 lb", "7.5 lb", "10 lb", "12.5 lb", "15 lb", "17.5 lb
 const CABLE_LEVELS = ["10 lb", "20 lb", "30 lb", "40 lb", "50 lb", "60 lb", "70 lb", "80 lb", "90 lb", "100 lb", "110 lb", "120 lb", "130 lb", "140 lb", "150 lb"];
 const MACHINE_LEVELS = ["20 lb", "35 lb", "50 lb", "65 lb", "80 lb", "95 lb", "110 lb", "125 lb", "145 lb", "165 lb", "185 lb", "205 lb", "225 lb"];
 const LEG_MACHINE_LEVELS = ["10 lb", "25 lb", "40 lb", "55 lb", "70 lb", "85 lb", "100 lb", "115 lb", "135 lb", "155 lb", "175 lb", "195 lb", "215 lb"];
+const RUNNING_LEVELS = Array.from({ length: 15 }, (_, index) => `${3 + index * 0.5} mph`);
 
 const DEFAULT_EXERCISES = [
   defaultExercise("incline-db-press", "Incline DB Press", "Dumbbell", DUMBBELL_LEVELS, "25 lb"),
@@ -24,7 +25,8 @@ const DEFAULT_EXERCISES = [
   defaultExercise("bicep-curls", "Bicep Curls", "Dumbbell", DUMBBELL_LEVELS, "20 lb"),
   defaultExercise("triceps-pushdown", "Triceps Pushdown", "Cable", CABLE_LEVELS, "30 lb"),
   defaultExercise("front-delt-raise", "Front Delt Raise", "Dumbbell", DUMBBELL_LEVELS, "7.5 lb"),
-  defaultExercise("side-delt-raise", "Side Delt Raise", "Dumbbell", DUMBBELL_LEVELS, "7.5 lb")
+  defaultExercise("side-delt-raise", "Side Delt Raise", "Dumbbell", DUMBBELL_LEVELS, "7.5 lb"),
+  { ...defaultExercise("running", "Running", "Treadmill", RUNNING_LEVELS, "3 mph"), volumeUnit: "minutes" }
 ];
 
 let currentView = "workout";
@@ -117,7 +119,7 @@ function renderWorkout() {
 
   const heading = el("div", undefined, "section-heading");
   const headingText = el("div");
-  headingText.append(el("h2", "Today’s accessory work"));
+  headingText.append(el("h2", "Today’s workout"));
   headingText.append(el("p", formatDate(state.active.date), "meta"));
   heading.append(headingText);
 
@@ -160,7 +162,7 @@ function renderExercise(exercise, result) {
   const prescription = prescriptionAt(exercise);
   levelBlock.append(el("div", result ? "Next prescription" : "Current prescription", "level-label"));
   levelBlock.append(el("p", currentWeight(exercise), "level-value"));
-  levelBlock.append(el("p", `${prescription.sets} ${prescription.sets === 1 ? "set" : "sets"} × ${prescription.reps} reps · benchmark ${exercise.levels[exercise.benchmarkIndex]}`, "prescription-meta"));
+  levelBlock.append(el("p", `${prescriptionText(exercise, prescription)} · benchmark ${exercise.levels[exercise.benchmarkIndex]}`, "prescription-meta"));
 
   const progressRow = el("div", undefined, "progress-row");
   const track = el("div", undefined, "progress-track");
@@ -175,7 +177,7 @@ function renderExercise(exercise, result) {
     const loggedState = el("div", undefined, "logged-state");
     loggedState.classList.add(result.outcome);
     const labels = { success: "✓ Done", failure: "✗ Failed", skipped: "— Skipped" };
-    loggedState.append(el("span", `${labels[result.outcome]} · ${result.sets}×${result.reps} at ${result.weight}`));
+    loggedState.append(el("span", `${labels[result.outcome]} · ${prescriptionText(exercise, result, true)} at ${result.weight}`));
     loggedState.append(button("Undo", "link-button", "undo-result", exercise.id));
     card.append(loggedState);
   } else {
@@ -192,7 +194,7 @@ function renderExerciseSettings() {
   const heading = el("div", undefined, "section-heading");
   const copy = el("div");
   copy.append(el("h2", "Exercises and current state"));
-  copy.append(el("p", "Set today’s level directly or exclude a lift from the workout.", "meta"));
+  copy.append(el("p", "Set today’s level directly or exclude an exercise from the workout.", "meta"));
   heading.append(copy);
   app.append(heading);
   if (notice) app.append(el("p", notice, "notice"));
@@ -214,12 +216,13 @@ function renderExerciseSettingCard(exercise) {
 
   const prescription = prescriptionAt(exercise);
   const controls = el("div", undefined, "settings-grid");
-  controls.append(settingSelect("Current weight", exercise, "currentIndex", exercise.currentIndex, exercise.levels.map((label, index) => [index, label])));
+  const timed = exercise.volumeUnit === "minutes";
+  controls.append(settingSelect(timed ? "Current speed" : "Current weight", exercise, "currentIndex", exercise.currentIndex, exercise.levels.map((label, index) => [index, label])));
   controls.append(settingSelect("Benchmark", exercise, "benchmarkIndex", exercise.benchmarkIndex, exercise.levels.map((label, index) => [index, label])));
-  controls.append(settingSelect("Sets at this weight", exercise, "sets", prescription.sets, [[1, "1 set"], [2, "2 sets"], [3, "3 sets"]]));
+  controls.append(settingSelect(timed ? "Sets at this speed" : "Sets at this weight", exercise, "sets", prescription.sets, [[1, "1 set"], [2, "2 sets"], [3, "3 sets"]]));
 
   const repsLabel = el("label", undefined, "setting-field");
-  repsLabel.append(el("span", "Target reps", "level-label"));
+  repsLabel.append(el("span", timed ? "Target minutes" : "Target reps", "level-label"));
   const repsInput = document.createElement("input");
   repsInput.type = "number";
   repsInput.min = "1";
@@ -233,7 +236,7 @@ function renderExerciseSettingCard(exercise) {
   card.append(controls);
 
   const footer = el("div", undefined, "settings-footer");
-  footer.append(el("span", state.active.results[exercise.id] ? "Undo this workout result before editing." : `Each weight remembers its volume. Failure drops ${FAILURE_DROP_LEVELS} levels.`, "helper-text"));
+  footer.append(el("span", state.active.results[exercise.id] ? "Undo this workout result before editing." : `Each ${timed ? "speed" : "weight"} remembers its volume. Failure drops ${FAILURE_DROP_LEVELS} levels.`, "helper-text"));
   const reset = button("Reset to base", "button compact", "reset-exercise", exercise.id);
   reset.disabled = Boolean(state.active.results[exercise.id]);
   footer.append(reset);
@@ -270,7 +273,7 @@ function renderHistory() {
   if (state.sessions.length === 0) {
     const empty = el("section", undefined, "empty-card");
     empty.append(el("h3", "Nothing logged yet"));
-    empty.append(el("p", "Finish your first accessory workout and it will show up here.", "muted"));
+    empty.append(el("p", "Finish your first workout and it will show up here.", "muted"));
     app.append(empty);
   } else {
     const list = el("div", undefined, "history-list");
@@ -310,7 +313,7 @@ function renderHistoryCard(session) {
     const row = el("li");
     row.append(el("span", entry.name));
     const labels = { success: "Done", failure: "Failed", skipped: "Skipped" };
-    row.append(el("strong", `${labels[entry.outcome] || entry.outcome} · ${entry.sets || 1}×${entry.reps || 5} at ${entry.weight}`, `result-${entry.outcome}`));
+    row.append(el("strong", `${labels[entry.outcome] || entry.outcome} · ${prescriptionText(entry, { sets: entry.sets || 1, reps: entry.reps || 5 }, true)} at ${entry.weight}`, `result-${entry.outcome}`));
     results.append(row);
   });
   card.append(results);
@@ -330,15 +333,17 @@ function logResult(exerciseId, outcome) {
     weight: currentWeight(exercise),
     sets: prescription.sets,
     reps: prescription.reps,
+    ...volumeMetadata(exercise),
     before,
     loggedAt: new Date().toISOString()
   };
   applyOutcome(exercise, outcome);
 
+  const levelName = exercise.volumeUnit === "minutes" ? "speed" : "weight";
   const messages = {
     success: before.currentIndex === exercise.levels.length - 1
-      ? `Success logged at the highest weight. Volume advanced and the next prescription drops ${FAILURE_DROP_LEVELS} levels.`
-      : "Success logged. The next weight uses its stored prescription.",
+      ? `Success logged at the highest ${levelName}. Volume advanced and the next prescription drops ${FAILURE_DROP_LEVELS} levels.`
+      : `Success logged. The next ${levelName} uses its stored prescription.`,
     failure: `Failure logged. The failed prescription stays here; the lower rebuild advances one volume step and drops ${FAILURE_DROP_LEVELS} levels.`,
     skipped: "Skipped. The prescription stays unchanged."
   };
@@ -385,7 +390,7 @@ function completeWorkout() {
         weight: currentWeight(exercise),
         ...prescriptionAt(exercise)
       };
-      return { exerciseId: exercise.id, name: exercise.name, equipment: exercise.equipment, weight: result.weight, sets: result.sets, reps: result.reps, outcome: result.outcome };
+      return { exerciseId: exercise.id, name: exercise.name, equipment: exercise.equipment, weight: result.weight, sets: result.sets, reps: result.reps, outcome: result.outcome, ...volumeMetadata(exercise) };
     })
   };
   state.sessions.unshift(session);
@@ -557,6 +562,7 @@ function normalizeExercise(saved, fallback, savedVersion, sessions) {
     id,
     name,
     equipment: String(fallback?.equipment || source.equipment || "Accessory"),
+    ...volumeMetadata(fallback || source),
     levels,
     baseIndex,
     currentIndex,
@@ -621,6 +627,7 @@ function normalizeActive(active, exercises, sessions) {
       weight: String(result.weight || exercise.levels[levelIndex]),
       sets: performedPrescription.sets,
       reps: performedPrescription.reps,
+      ...volumeMetadata(exercise),
       before,
       loggedAt: String(result.loggedAt || new Date().toISOString())
     };
@@ -679,6 +686,16 @@ function enabledExercises() {
 
 function currentWeight(exercise) {
   return exercise.levels[exercise.currentIndex];
+}
+
+function volumeMetadata(exercise) {
+  return exercise.volumeUnit === "minutes" ? { volumeUnit: "minutes" } : {};
+}
+
+function prescriptionText(exercise, prescription, compact = false) {
+  const timed = exercise.volumeUnit === "minutes";
+  if (compact) return `${prescription.sets}×${prescription.reps}${timed ? " min" : ""}`;
+  return `${prescription.sets} ${prescription.sets === 1 ? "set" : "sets"} × ${prescription.reps} ${timed ? (prescription.reps === 1 ? "minute" : "minutes") : "reps"}`;
 }
 
 function nearestLevelIndex(levels, weight) {

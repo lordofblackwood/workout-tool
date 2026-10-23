@@ -125,6 +125,7 @@ export function normalizeHistory(source, raw) {
           weightLabel: String(e.weight).slice(0, 80),
           sets: finite(e.sets) ? e.sets : null,
           reps: finite(e.reps) ? e.reps : null,
+          ...(e.volumeUnit === "minutes" ? { volumeUnit: "minutes" } : {}),
           outcome: e.outcome,
           countsDay: e.outcome !== "skipped",
         });
