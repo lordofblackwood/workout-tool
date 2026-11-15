@@ -57,11 +57,20 @@ export function progressExercise(exercise, outcome, failureDropLevels = 5) {
   const deloadIndex = Math.max(baseIndex, currentIndex - drop);
 
   if (outcome === 'failure') {
+    const highestFailedIndex = Number.isInteger(exercise.highestFailedIndex) && exercise.highestFailedIndex >= 0
+      ? clamp(exercise.highestFailedIndex, 0, max)
+      : -1;
+    const freshRebuild = currentIndex > highestFailedIndex;
     const lowerReferenceIndex = currentIndex > baseIndex ? currentIndex - 1 : currentIndex;
-    const rebuildingPrescription = nextPrescription(volumeChart[lowerReferenceIndex]);
+    const rebuildingPrescription = nextPrescription(volumeChart[freshRebuild ? currentIndex : lowerReferenceIndex]);
     const corridorEnd = currentIndex > baseIndex ? currentIndex - 1 : currentIndex;
-    raiseCorridor(volumeChart, deloadIndex, corridorEnd, rebuildingPrescription);
+    for (let index = deloadIndex; index <= corridorEnd; index += 1) {
+      volumeChart[index] = freshRebuild
+        ? { ...rebuildingPrescription }
+        : laterPrescription(volumeChart[index], rebuildingPrescription);
+    }
     next.currentIndex = deloadIndex;
+    next.highestFailedIndex = Math.max(highestFailedIndex, currentIndex);
     return next;
   }
 

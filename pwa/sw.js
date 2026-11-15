@@ -1,10 +1,10 @@
-const CACHE_NAME = "accessory-lift-tracker-v14";
+const CACHE_NAME = "accessory-lift-tracker-v15";
 const APP_SHELL = [
   "./",
   "./index.html",
   "./styles.css?v=2",
-  "./app.js?v=11",
-  "./progression.mjs?v=1",
+  "./app.js?v=12",
+  "./progression.mjs?v=2",
   "./manifest.webmanifest",
   "./powerlevel/widget.mjs",
   "./powerlevel/history.mjs",

@@ -4,7 +4,7 @@ import {
   normalizeVolumeChart,
   prescriptionAt,
   progressExercise
-} from "./progression.mjs?v=1";
+} from "./progression.mjs?v=2";
 
 const STORAGE_KEY = "accessory-lift-tracker-v1";
 const STATE_VERSION = 4;
@@ -57,7 +57,7 @@ registerServiceWorker();
 
 function defaultExercise(id, name, equipment, levels, startingWeight) {
   const currentIndex = Math.max(0, levels.indexOf(startingWeight));
-  return { id, name, equipment, levels: [...levels], baseIndex: 0, currentIndex, benchmarkIndex: currentIndex, volumeChart: makeVolumeChart(levels.length), enabled: true };
+  return { id, name, equipment, levels: [...levels], baseIndex: 0, currentIndex, benchmarkIndex: currentIndex, highestFailedIndex: null, volumeChart: makeVolumeChart(levels.length), enabled: true };
 }
 
 function handleClick(event) {
@@ -327,6 +327,7 @@ function logResult(exerciseId, outcome) {
 
   const before = exerciseSnapshot(exercise);
   const prescription = prescriptionAt(exercise);
+  const freshRebuild = outcome === "failure" && (exercise.highestFailedIndex === null || exercise.currentIndex > exercise.highestFailedIndex);
   state.active.results[exerciseId] = {
     outcome,
     levelIndex: exercise.currentIndex,
@@ -344,7 +345,9 @@ function logResult(exerciseId, outcome) {
     success: before.currentIndex === exercise.levels.length - 1
       ? `Success logged at the highest ${levelName}. Volume advanced and the next prescription drops ${FAILURE_DROP_LEVELS} levels.`
       : `Success logged. The next ${levelName} uses its stored prescription.`,
-    failure: `Failure logged. The failed prescription stays here; the lower rebuild advances one volume step and drops ${FAILURE_DROP_LEVELS} levels.`,
+    failure: freshRebuild
+      ? `Failure logged at a new ${levelName}. A fresh rebuild starts one volume step above this prescription, ${FAILURE_DROP_LEVELS} levels lower.`
+      : `Failure logged. The failed prescription stays here; the lower rebuild advances one volume step and drops ${FAILURE_DROP_LEVELS} levels.`,
     skipped: "Skipped. The prescription stays unchanged."
   };
   notice = messages[outcome];
@@ -357,6 +360,7 @@ function applyOutcome(exercise, outcome) {
   exercise.currentIndex = progressed.currentIndex;
   exercise.benchmarkIndex = progressed.benchmarkIndex;
   exercise.volumeChart = progressed.volumeChart;
+  exercise.highestFailedIndex = progressed.highestFailedIndex;
 }
 
 function undoResult(exerciseId) {
@@ -440,6 +444,7 @@ function resetExercise(exerciseId) {
   if (!exercise || state.active.results[exerciseId]) return;
   exercise.currentIndex = exercise.baseIndex;
   exercise.benchmarkIndex = exercise.baseIndex;
+  exercise.highestFailedIndex = null;
   exercise.volumeChart = makeVolumeChart(exercise.levels.length);
   notice = `${exercise.name} reset to ${currentWeight(exercise)}.`;
   persist();
@@ -532,6 +537,14 @@ function normalizeState(value) {
   });
   const active = normalizeActive(value.active, exercises, sessions);
   if (savedVersion < STATE_VERSION) replayActiveResults(active, exercises);
+  else exercises.forEach((exercise) => {
+    const source = savedById.get(exercise.id);
+    const result = active.results[exercise.id];
+    // An already-applied legacy result needs failure tracking, not another progression step.
+    if (!hasFailureIndex(source) && result?.outcome === "failure") {
+      exercise.highestFailedIndex = Math.max(exercise.highestFailedIndex ?? -1, result.levelIndex);
+    }
+  });
   return { version: STATE_VERSION, exercises, sessions, active };
 }
 
@@ -567,9 +580,31 @@ function normalizeExercise(saved, fallback, savedVersion, sessions) {
     baseIndex,
     currentIndex,
     benchmarkIndex: normalizedBenchmarkIndex,
+    highestFailedIndex: normalizeFailureIndex(source, { id, name, levels }, sessions),
     volumeChart,
     enabled: source.enabled !== false
   };
+}
+
+function hasFailureIndex(source) {
+  return source?.highestFailedIndex === null || (Number.isInteger(source?.highestFailedIndex) && source.highestFailedIndex >= 0);
+}
+
+function normalizeFailureIndex(source, exercise, sessions = []) {
+  if (source?.highestFailedIndex === null) return null;
+  if (hasFailureIndex(source)) return migratedIndex(source, source.highestFailedIndex, exercise.levels, source.highestFailedIndex);
+
+  let highestFailedIndex = null;
+  sessions.forEach((session) => {
+    if (!Array.isArray(session?.exercises)) return;
+    session.exercises.forEach((entry) => {
+      const matchesExercise = String(entry?.exerciseId || "") === exercise.id || (!entry?.exerciseId && String(entry?.name || "") === exercise.name);
+      if (!matchesExercise || entry.outcome !== "failure" || !Number.isFinite(numericWeight(entry.weight))) return;
+      const levelIndex = nearestLevelIndex(exercise.levels, entry.weight);
+      highestFailedIndex = Math.max(highestFailedIndex ?? -1, levelIndex);
+    });
+  });
+  return highestFailedIndex;
 }
 
 function migrateLegacyVolumeChart(source, levels, baseIndex, currentIndex, benchmarkIndex, sessions, exerciseId, exerciseName) {
@@ -618,7 +653,11 @@ function normalizeActive(active, exercises, sessions) {
     const exercise = exercises.find((item) => item.id === exerciseId);
     if (!exercise || !result || !["success", "failure", "skipped"].includes(result.outcome)) return;
     const levelIndex = nearestLevelIndex(exercise.levels, result.weight || exercise.levels[result.levelIndex] || currentWeight(exercise));
-    const before = result.before ? normalizeSnapshot(result.before, exercise, sessions) : { ...exerciseSnapshot(exercise), currentIndex: levelIndex };
+    const before = result.before ? normalizeSnapshot(result.before, exercise, sessions) : {
+      ...exerciseSnapshot(exercise),
+      currentIndex: levelIndex,
+      highestFailedIndex: normalizeFailureIndex(null, exercise, sessions)
+    };
     const beforePrescription = before.volumeChart[before.currentIndex] || prescriptionAt(exercise);
     const performedPrescription = normalizePrescription({ sets: result.sets, reps: result.reps }, beforePrescription);
     results[exerciseId] = {
@@ -644,6 +683,7 @@ function normalizeSnapshot(snapshot, exercise, sessions = []) {
   return {
     currentIndex,
     benchmarkIndex,
+    highestFailedIndex: normalizeFailureIndex(snapshot, exercise, sessions),
     volumeChart
   };
 }
@@ -669,6 +709,7 @@ function exerciseSnapshot(exercise) {
   return {
     currentIndex: exercise.currentIndex,
     benchmarkIndex: exercise.benchmarkIndex,
+    highestFailedIndex: exercise.highestFailedIndex,
     volumeChart: normalizeVolumeChart(exercise.volumeChart, exercise.levels.length)
   };
 }
@@ -678,6 +719,7 @@ function restoreExercise(exercise, snapshot) {
   exercise.currentIndex = normalized.currentIndex;
   exercise.benchmarkIndex = normalized.benchmarkIndex;
   exercise.volumeChart = normalized.volumeChart;
+  exercise.highestFailedIndex = normalized.highestFailedIndex;
 }
 
 function enabledExercises() {

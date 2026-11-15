@@ -54,7 +54,16 @@ function createApp(savedState) {
       getItem: (key) => storage.get(key) ?? null,
       setItem: (key, value) => storage.set(key, value)
     },
-    window: { addEventListener() {} },
+    window: { addEventListener() {}, confirm: () => true },
+    FileReader: class {
+      addEventListener(type, listener) {
+        if (type === 'load') this.onLoad = listener;
+      }
+      readAsText(file) {
+        this.result = file.text;
+        this.onLoad();
+      }
+    },
     document: {
       querySelector: (selector) => selector === '#app' ? app : installButton,
       querySelectorAll: () => [],
@@ -96,6 +105,12 @@ function createApp(savedState) {
       assert.ok(target, `Missing ${field} control for ${exerciseId}`);
       assert.equal(target.disabled, false, `${field} control should be enabled`);
       target.value = String(value);
+      listeners.get('change')({ target });
+    },
+    importBackup(value) {
+      const target = new Element('input');
+      target.id = 'import-file';
+      target.files = [{ text: JSON.stringify(value) }];
       listeners.get('change')({ target });
     },
     readState: () => JSON.parse(vm.runInContext('JSON.stringify(state)', context)),
@@ -337,4 +352,212 @@ test('finishing early records an unlogged run in minutes without advancing its t
     volumeUnit: 'minutes'
   }]);
   assert.match(app.text(), /Skipped · 1×5 min at 3 mph/);
+});
+
+function legacyCurlState(currentWeight = '55 lb') {
+  const state = workoutState(0);
+  const curl = state.exercises.find((exercise) => exercise.id === 'bicep-curls');
+  curl.enabled = true;
+  curl.currentIndex = curl.levels.indexOf(currentWeight);
+  curl.benchmarkIndex = curl.levels.indexOf('55 lb');
+  curl.volumeChart = curl.volumeChart.map((prescription, index) => {
+    if (index <= 6) return { sets: 2, reps: 5 };
+    if (index === 7) return { sets: 2, reps: 6 };
+    if (index <= 12) return { sets: 2, reps: 7 };
+    if (index === 13) return { sets: 3, reps: 6 };
+    return prescription;
+  });
+  delete curl.highestFailedIndex;
+  state.sessions = [
+    ['2025-02-05', '50 lb', 1, 5, 'success'],
+    ['2025-02-04', '45 lb', 3, 6, 'success'],
+    ['2025-02-03', '30 lb', 2, 7, 'success'],
+    ['2025-02-02', '45 lb', 3, 6, 'failure'],
+    ['2025-02-01', '50 lb', 1, 5, 'failure']
+  ].map(([date, weight, sets, reps, outcome]) => ({
+    id: `curl-${date}`,
+    date,
+    completedAt: `${date}T12:00:00.000Z`,
+    exercises: [historyEntry(curl, { weight, sets, reps, outcome })]
+  }));
+  return state;
+}
+
+function withoutFailureTracking(value) {
+  return JSON.parse(JSON.stringify(value, (key, entry) => key === 'highestFailedIndex' ? undefined : entry));
+}
+
+test('legacy version-four loading preserves every chart and history entry while recovering the highest failed weight', () => {
+  const fixture = legacyCurlState('30 lb');
+  const curl = fixture.exercises.find((exercise) => exercise.id === 'bicep-curls');
+  curl.volumeChart[curl.levels.indexOf('50 lb')] = { sets: 2, reps: 5 };
+  fixture.sessions.unshift({
+    id: 'curl-2025-02-06',
+    date: '2025-02-06',
+    completedAt: '2025-02-06T12:00:00.000Z',
+    exercises: [historyEntry(curl, { weight: '55 lb', sets: 1, reps: 5, outcome: 'failure' })]
+  });
+
+  const saved = createApp(fixture).readSavedState();
+  const savedCurl = saved.exercises.find((exercise) => exercise.id === curl.id);
+  assert.equal(saved.version, 4);
+  assert.equal(savedCurl.highestFailedIndex, curl.levels.indexOf('55 lb'));
+  assert.deepEqual(progression.prescriptionAt(savedCurl), { sets: 2, reps: 7 });
+  assert.deepEqual(withoutFailureTracking(saved), withoutFailureTracking(fixture));
+  assert.deepEqual(createApp(saved).readSavedState(), saved);
+});
+
+test('completed failure history makes a repeated sticking point advance its existing rebuild instead of restarting', () => {
+  const fixture = legacyCurlState('50 lb');
+  const app = createApp(fixture);
+  const curl = app.readState().exercises.find((exercise) => exercise.id === 'bicep-curls');
+  assert.equal(curl.highestFailedIndex, curl.levels.indexOf('50 lb'));
+
+  app.click('log-failure', curl.id);
+
+  const saved = app.readSavedState();
+  const rebuilt = saved.exercises.find((exercise) => exercise.id === curl.id);
+  assert.equal(rebuilt.levels[rebuilt.currentIndex], '27.5 lb');
+  assert.deepEqual(progression.prescriptionAt(rebuilt), { sets: 2, reps: 7 });
+  assert.deepEqual(saved.sessions, fixture.sessions);
+});
+
+test('a new failure starts fresh and repeated failures keep advancing across completed workouts and reloads', () => {
+  const fixture = legacyCurlState();
+  let app = createApp(fixture);
+  const curlId = 'bicep-curls';
+  const initialCurl = app.readState().exercises.find((exercise) => exercise.id === curlId);
+
+  app.click('log-failure', curlId);
+  let saved = app.readSavedState();
+  let rebuilt = saved.exercises.find((exercise) => exercise.id === curlId);
+  assert.equal(rebuilt.levels[rebuilt.currentIndex], '30 lb');
+  assert.deepEqual(progression.prescriptionAt(rebuilt), { sets: 2, reps: 5 });
+  assert.equal(rebuilt.highestFailedIndex, rebuilt.levels.indexOf('55 lb'));
+  assert.deepEqual(saved.active.results[curlId].before, {
+    currentIndex: initialCurl.currentIndex,
+    benchmarkIndex: initialCurl.benchmarkIndex,
+    highestFailedIndex: initialCurl.highestFailedIndex,
+    volumeChart: initialCurl.volumeChart
+  });
+  assert.deepEqual(saved.sessions, fixture.sessions);
+  assert.deepEqual(createApp(saved).readSavedState(), saved);
+
+  app.click('complete-workout');
+  saved = app.readSavedState();
+  assert.deepEqual(saved.sessions[0].exercises, [historyEntry(initialCurl, {
+    weight: '55 lb', sets: 1, reps: 5, outcome: 'failure'
+  })]);
+  assert.deepEqual(saved.sessions.slice(1), fixture.sessions);
+
+  for (const prescription of [{ sets: 3, reps: 5 }, { sets: 1, reps: 6 }]) {
+    app = createApp(saved);
+    for (let step = 0; step < 5; step += 1) {
+      app.click('log-success', curlId);
+      app.click('complete-workout');
+      app.view('workout');
+    }
+    const returned = app.readState().exercises.find((exercise) => exercise.id === curlId);
+    assert.equal(returned.levels[returned.currentIndex], '55 lb');
+    assert.deepEqual(progression.prescriptionAt(returned), { sets: 1, reps: 5 });
+    app.click('log-failure', curlId);
+    rebuilt = app.readSavedState().exercises.find((exercise) => exercise.id === curlId);
+    assert.equal(rebuilt.levels[rebuilt.currentIndex], '30 lb');
+    assert.deepEqual(progression.prescriptionAt(rebuilt), prescription);
+    app.click('complete-workout');
+    saved = app.readSavedState();
+  }
+});
+
+test('an active legacy failure loads without applying progression twice and undo restores its original chart and failure history', () => {
+  const fixture = legacyCurlState();
+  const curl = fixture.exercises.find((exercise) => exercise.id === 'bicep-curls');
+  const before = {
+    currentIndex: curl.currentIndex,
+    benchmarkIndex: curl.benchmarkIndex,
+    volumeChart: structuredClone(curl.volumeChart)
+  };
+  fixture.active.results[curl.id] = {
+    outcome: 'failure',
+    levelIndex: curl.currentIndex,
+    weight: '55 lb',
+    sets: 1,
+    reps: 5,
+    before,
+    loggedAt: '2025-02-06T11:59:59.000Z'
+  };
+  curl.currentIndex = curl.levels.indexOf('30 lb');
+  curl.volumeChart[curl.levels.indexOf('50 lb')] = { sets: 2, reps: 5 };
+
+  const app = createApp(fixture);
+  const loaded = app.readSavedState();
+  assert.deepEqual(withoutFailureTracking(loaded), withoutFailureTracking(fixture));
+  assert.equal(loaded.exercises.find((exercise) => exercise.id === curl.id).highestFailedIndex, curl.levels.indexOf('55 lb'));
+  assert.equal(loaded.active.results[curl.id].before.highestFailedIndex, curl.levels.indexOf('50 lb'));
+  assert.deepEqual(createApp(loaded).readSavedState(), loaded);
+
+  const reloaded = createApp(loaded);
+  reloaded.click('undo-result', curl.id);
+  const undone = reloaded.readSavedState();
+  const restored = undone.exercises.find((exercise) => exercise.id === curl.id);
+  assert.equal(restored.currentIndex, before.currentIndex);
+  assert.equal(restored.benchmarkIndex, before.benchmarkIndex);
+  assert.equal(restored.highestFailedIndex, curl.levels.indexOf('50 lb'));
+  assert.deepEqual(restored.volumeChart, before.volumeChart);
+  assert.deepEqual(undone.sessions, fixture.sessions);
+  assert.deepEqual(undone.active.results, {});
+  reloaded.click('log-failure', curl.id);
+  assert.deepEqual(progression.prescriptionAt(reloaded.readSavedState().exercises.find((exercise) => exercise.id === curl.id)), { sets: 2, reps: 5 });
+});
+
+test('resetting a workout restores the failure frontier so a new weight can be retried as a fresh rebuild', () => {
+  const app = createApp(legacyCurlState());
+  const original = app.readState();
+  app.click('log-failure', 'bicep-curls');
+  app.click('reset-workout');
+  const reset = app.readSavedState();
+  assert.deepEqual(reset.exercises, original.exercises);
+  assert.deepEqual(reset.sessions, original.sessions);
+  assert.deepEqual(reset.active.results, {});
+  app.click('log-failure', 'bicep-curls');
+  assert.deepEqual(progression.prescriptionAt(app.readSavedState().exercises.find((exercise) => exercise.id === 'bicep-curls')), { sets: 2, reps: 5 });
+});
+
+test('an explicit exercise reset remains fresh after reload and backup import despite older failure history', () => {
+  const app = createApp(legacyCurlState());
+  app.view('exercises');
+  app.click('reset-exercise', 'bicep-curls');
+  const reset = app.readSavedState();
+  const curl = reset.exercises.find((exercise) => exercise.id === 'bicep-curls');
+  assert.equal(curl.highestFailedIndex, null);
+  assert.equal(curl.currentIndex, curl.baseIndex);
+  assert.deepEqual(curl.volumeChart, progression.makeVolumeChart(curl.levels.length));
+  assert.deepEqual(createApp(reset).readSavedState(), reset);
+
+  const imported = createApp();
+  imported.importBackup(reset);
+  assert.deepEqual(imported.readSavedState(), reset);
+  imported.view('exercises');
+  imported.change(curl.id, 'currentIndex', curl.levels.indexOf('55 lb'));
+  imported.view('workout');
+  imported.click('log-failure', curl.id);
+  assert.deepEqual(progression.prescriptionAt(imported.readSavedState().exercises.find((exercise) => exercise.id === curl.id)), { sets: 2, reps: 5 });
+});
+
+test('importing legacy and current backups preserves active results, undo snapshots, and completed history', () => {
+  const fixture = legacyCurlState();
+  const source = createApp(fixture);
+  source.click('log-failure', 'bicep-curls');
+  const currentBackup = source.readSavedState();
+  const imported = createApp();
+  imported.importBackup(currentBackup);
+  assert.deepEqual(imported.readSavedState(), currentBackup);
+  imported.click('undo-result', 'bicep-curls');
+  assert.deepEqual(imported.readSavedState().exercises, createApp(fixture).readState().exercises);
+  assert.deepEqual(imported.readSavedState().sessions, fixture.sessions);
+
+  const legacyImport = createApp();
+  legacyImport.importBackup(fixture);
+  assert.deepEqual(withoutFailureTracking(legacyImport.readSavedState()), withoutFailureTracking(fixture));
+  assert.equal(legacyImport.readSavedState().exercises.find((exercise) => exercise.id === 'bicep-curls').highestFailedIndex, 14);
 });
